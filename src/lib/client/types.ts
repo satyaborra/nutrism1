@@ -487,3 +487,92 @@ export interface HealthResponse {
   seed: { foods: number; evidence: number; templates: number; constraints: number };
   time?: string;
 }
+
+// ---------- Food library (browse + detail) ----------
+
+export interface FoodLibraryItem {
+  id: string;
+  name: string;
+  category: string;
+  servingUnit: string;
+  isVeg: boolean;
+  containsEgg?: boolean;
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  fiber: number;
+  allergens: string[];
+}
+
+export interface FoodLibraryResponse {
+  foods: FoodLibraryItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+  hasMore: boolean;
+}
+
+export interface FoodDetailResponse {
+  food: {
+    id: string;
+    name: string;
+    category: string;
+    isVeg: boolean;
+    containsEgg: boolean;
+    servingSize: number;
+    servingUnit: string;
+    source: string;
+    sourceReference: string | null;
+    tags: string[];
+    allergens: string[];
+    aliases: { alias: string; language: string; isPrimary: boolean }[];
+    nutrients: {
+      calories: number;
+      protein: number;
+      carbohydrates: number;
+      fat: number;
+      saturatedFat: number;
+      fiber: number;
+      sugar: number;
+      sodium: number;
+      potassium: number;
+      phosphorus: number;
+      cholesterol: number;
+    };
+    per100g: {
+      estimated: boolean;
+      basisNote: string;
+      calories: number;
+      protein: number;
+      carbohydrates: number;
+      fat: number;
+      saturatedFat: number;
+      fiber: number;
+      sugar: number;
+      sodium: number;
+      potassium: number;
+      phosphorus: number;
+      cholesterol: number;
+    };
+  };
+}
+
+export const FOOD_LANGUAGE_LABELS: Record<string, string> = {
+  en: "English",
+  ta: "தமிழ்",
+  te: "తెలుగు",
+  hi: "हिन्दी",
+  kn: "ಕನ್ನಡ",
+  rom: "Romanized",
+};
+
+// ---------- Log again (re-log a previous meal) ----------
+
+export interface RelogResponse {
+  ok: boolean;
+  mealId: string;
+  totals: NutritionValues;
+  source: string;
+  recommendationInvalidated: boolean;
+}

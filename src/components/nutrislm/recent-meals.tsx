@@ -7,7 +7,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
-import { CheckCircle2, ChevronDown, HelpCircle, History, Loader2, Pencil, Trash2, TriangleAlert, Camera } from "lucide-react";
+import { CheckCircle2, ChevronDown, HelpCircle, History, Loader2, Pencil, Repeat, Trash2, TriangleAlert, Camera } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -310,6 +310,8 @@ export function RecentMeals() {
   const [pendingDelete, setPendingDelete] = useState<MealDetail | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [editing, setEditing] = useState<MealDetail | null>(null);
+  const [pendingRelog, setPendingRelog] = useState<MealDetail | null>(null);
+  const [relogging, setRelogging] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -341,6 +343,28 @@ export function RecentMeals() {
       });
     } finally {
       setDeleting(false);
+    }
+  }
+
+  async function handleRelog() {
+    if (!pendingRelog) return;
+    setRelogging(true);
+    try {
+      const res = await api.relogMeal(pendingRelog.id);
+      toast({
+        title: "Logged again",
+        description: `${res.totals.calories} kcal · recalculated fresh from the food database.`,
+      });
+      setPendingRelog(null);
+      bumpData();
+    } catch (e) {
+      toast({
+        title: "Could not log this meal again",
+        description: e instanceof Error ? e.message : "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setRelogging(false);
     }
   }
 
@@ -395,6 +419,11 @@ export function RecentMeals() {
                           {m.source === "image" && (
                             <Badge variant="secondary" className="gap-0.5 text-[9px] uppercase tracking-wide">
                               <Camera className="h-2.5 w-2.5" aria-hidden /> photo
+                            </Badge>
+                          )}
+                          {m.source === "relog" && (
+                            <Badge variant="secondary" className="gap-0.5 text-[9px] uppercase tracking-wide">
+                              <Repeat className="h-2.5 w-2.5" aria-hidden /> again
                             </Badge>
                           )}
                         </span>
@@ -468,6 +497,19 @@ export function RecentMeals() {
                           ))}
                         </ul>
 
+                        {/* One-tap re-log — server recomputes everything from the Food table */}
+                        <div className="flex justify-end">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 gap-1.5 text-[11px]"
+                            onClick={() => setPendingRelog(m)}
+                          >
+                            <Repeat className="h-3 w-3 text-primary" aria-hidden />
+                            Log this again
+                          </Button>
+                        </div>
+
                         {/* Full nutrient panel */}
                         <div>
                           <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -516,6 +558,42 @@ export function RecentMeals() {
           bumpData();
         }}
       />
+
+      {/* Re-log confirmation */}
+      <AlertDialog open={pendingRelog !== null} onOpenChange={(open) => !open && setPendingRelog(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Log this meal again?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingRelog && (
+                <>
+                  Adds a new entry with the same items — {pendingRelog.foods.map((f) => f.name).join(", ")} (
+                  {formatKcal(pendingRelog.totals.calories)}). All values are recalculated fresh from the food database.
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={relogging}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                void handleRelog();
+              }}
+              disabled={relogging}
+            >
+              {relogging ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
+                  Logging…
+                </>
+              ) : (
+                "Log it again"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Delete confirmation */}
       <AlertDialog open={pendingDelete !== null} onOpenChange={(open) => !open && setPendingDelete(null)}>

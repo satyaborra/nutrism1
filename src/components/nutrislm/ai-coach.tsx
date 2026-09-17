@@ -7,7 +7,7 @@
  * Includes a threaded follow-up chat grounded in the same verified numbers.
  */
 import { useEffect, useRef, useState } from "react";
-import { AlertTriangle, BadgeCheck, Lightbulb, MessageCircle, RefreshCw, Send, Sparkles, X } from "lucide-react";
+import { AlertTriangle, BadgeCheck, Lightbulb, MessageCircle, Plus, RefreshCw, Send, Sparkles, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -254,9 +254,26 @@ function CoachChat() {
               <MessageCircle className="h-3.5 w-3.5 text-primary" aria-hidden /> Follow-up chat
               <span className="font-normal text-muted-foreground">— grounded in today&apos;s verified numbers</span>
             </p>
-            <Button variant="ghost" size="icon" className="h-6 w-6" aria-label="Close chat" onClick={() => setOpen(false)}>
-              <X className="h-3.5 w-3.5" aria-hidden />
-            </Button>
+            <div className="flex items-center gap-1">
+              {(threadId || messages.length > 0) && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 gap-1 px-2 text-[11px] text-muted-foreground hover:text-primary"
+                  aria-label="Start a new conversation"
+                  onClick={() => {
+                    setThreadId(null);
+                    setMessages([]);
+                    setLoaded(true); // skip refetching the (now previous) latest thread
+                  }}
+                >
+                  <Plus className="h-3 w-3" aria-hidden /> New
+                </Button>
+              )}
+              <Button variant="ghost" size="icon" className="h-6 w-6" aria-label="Close chat" onClick={() => setOpen(false)}>
+                <X className="h-3.5 w-3.5" aria-hidden />
+              </Button>
+            </div>
           </div>
 
           {loaded && messages.length > 0 && (

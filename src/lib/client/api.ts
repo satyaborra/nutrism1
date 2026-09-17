@@ -26,6 +26,9 @@ import type {
   ProfileResponse,
   ProfileUpdateInput,
   RecentMealsResponse,
+  RelogResponse,
+  FoodLibraryResponse,
+  FoodDetailResponse,
   WeeklySummaryResponse,
 } from "./types";
 
@@ -129,6 +132,26 @@ export const api = {
     request<FeedbackGetResponse>(
       `/api/nutrition/recommendation-feedback?recommendationId=${encodeURIComponent(recommendationId)}`,
     ),
+
+  // Food library (verified DB — the single source of nutrition truth)
+  browseFoods: (params: { q?: string; category?: string; veg?: boolean; page?: number; pageSize?: number }) => {
+    const sp = new URLSearchParams();
+    if (params.q) sp.set("q", params.q);
+    if (params.category) sp.set("category", params.category);
+    if (params.veg) sp.set("veg", "true");
+    sp.set("page", String(params.page ?? 1));
+    sp.set("pageSize", String(params.pageSize ?? 24));
+    return request<FoodLibraryResponse>(`/api/foods?${sp.toString()}`);
+  },
+  foodDetail: (id: string) =>
+    request<FoodDetailResponse>(`/api/foods/${encodeURIComponent(id)}`),
+
+  // One-tap re-log of a previously logged meal (server recomputes all numbers)
+  relogMeal: (mealId: string) =>
+    request<RelogResponse>("/api/nutrition/meals/relog", {
+      method: "POST",
+      body: JSON.stringify({ mealId }),
+    }),
 
   /**
    * Download the meals CSV via blob so auth errors surface as ApiError instead of

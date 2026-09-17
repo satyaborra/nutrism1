@@ -47,7 +47,7 @@ export const POST = withApi("log_meal", async ({ req }: { req: NextRequest }) =>
   if (foods.length === 0) throw new AppError("VALIDATION_FAILED", "No foods provided.");
 
   const mealType = ["breakfast", "lunch", "snack", "dinner"].includes(String(body.mealType)) ? String(body.mealType) : "snack";
-  const source = ["text", "manual", "recommendation", "image"].includes(String(body.source))
+  const source = ["text", "manual", "recommendation", "image", "relog"].includes(String(body.source))
     ? String(body.source)
     : body.draftId
       ? "text"

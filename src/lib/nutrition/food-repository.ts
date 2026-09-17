@@ -175,29 +175,46 @@ const UNIT_GRAMS: Record<string, number> = {
   slice: 25, slices: 25, "2 slices": 50,
 };
 
+/** Units defined physically (not approximations) — conversions among these are exact. */
+const EXACT_UNIT_FAMILY = new Set([
+  "g", "gram", "grams", "gm", "gms", "kg",
+  "ml", "millilitre", "millilitres", "l",
+]);
+
+/** Split "1 katori" / "100 g" / "2 slices" into leading count + unit name. */
+function parseUnitParts(key: string): { count: number; name: string } {
+  const m = key.match(/^([\d.]+)\s*(.*)$/);
+  if (m) return { count: parseFloat(m[1]), name: m[2].trim() };
+  return { count: 1, name: key };
+}
+
+/** Compare unit names ignoring plural "s" (pieces ≈ piece), both sides must be non-empty. */
+function sameUnitName(a: string, b: string): boolean {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const sa = a.length > 3 && a.endsWith("s") ? a.slice(0, -1) : a;
+  const sb = b.length > 3 && b.endsWith("s") ? b.slice(0, -1) : b;
+  return sa === sb;
+}
+
 const REF_AMOUNT_CACHE = new Map<string, number>();
 
-function referenceGrams(referenceUnit: string): number {
+/** Gram weight of a food's reference unit ("1 katori" ≈ 150 g, "100 g" → 100). Exported for honest per-100 g panels. */
+export function referenceGrams(referenceUnit: string): number {
   const key = normalizeKey(referenceUnit);
   const cached = REF_AMOUNT_CACHE.get(key);
   if (cached) return cached;
 
   // "1 piece" / "100 g" / "2 slices" — leading number × unit weight
-  const m = key.match(/^([\d.]+)\s*(.*)$/);
+  const parts = parseUnitParts(key);
   let grams: number;
-  if (m) {
-    const count = parseFloat(m[1]);
-    const unitPart = m[2].trim();
-    const unitGrams = UNIT_GRAMS[unitPart];
-    if (unitGrams !== undefined) {
-      grams = count * unitGrams;
-    } else if (/^(g|gram|grams|ml)$/.test(unitPart)) {
-      grams = count;
-    } else {
-      grams = count * 150; // unknown unit family → assume ~150g per reference
-    }
+  const unitGrams = UNIT_GRAMS[parts.name];
+  if (unitGrams !== undefined) {
+    grams = parts.count * unitGrams;
+  } else if (/^(g|gram|grams|ml)$/.test(parts.name)) {
+    grams = parts.count;
   } else {
-    grams = UNIT_GRAMS[key] ?? 150;
+    grams = parts.count * 150; // unknown unit family → assume ~150g per reference
   }
   REF_AMOUNT_CACHE.set(key, grams);
   return grams;
@@ -211,17 +228,23 @@ export function convertQuantity(quantity: number, userUnit: string, referenceUni
     return { quantityInRefs: quantity, exact: true };
   }
 
-  const userGrams = UNIT_GRAMS[uUser];
+  const userParts = parseUnitParts(uUser);
+  const userUnitGrams = UNIT_GRAMS[userParts.name];
   const refGrams = referenceGrams(referenceUnit);
 
-  if (userGrams !== undefined && refGrams > 0) {
-    const refs = (quantity * userGrams) / refGrams;
+  if (userUnitGrams !== undefined && refGrams > 0) {
+    const refs = (quantity * userParts.count * userUnitGrams) / refGrams;
     const capped = Math.min(refs, 30);
     const rounded = Math.round(capped * 100) / 100;
+    const refParts = parseUnitParts(uRef);
+    // Exact when it is the same physical unit ("katori" vs "1 katori", "pieces" vs "1 piece")
+    // or a defined mass/volume conversion ("g" vs "100 g", "kg" vs "g").
+    const exact = sameUnitName(userParts.name, refParts.name)
+      || (EXACT_UNIT_FAMILY.has(userParts.name) && EXACT_UNIT_FAMILY.has(refParts.name));
     return {
       quantityInRefs: rounded,
-      exact: uUser === uRef,
-      note: `Converted ${quantity} ${userUnit} ≈ ${rounded} × ${referenceUnit} using standard portion weights.`,
+      exact,
+      ...(exact ? {} : { note: `Converted ${quantity} ${userUnit} ≈ ${rounded} × ${referenceUnit} using standard portion weights.` }),
     };
   }
 

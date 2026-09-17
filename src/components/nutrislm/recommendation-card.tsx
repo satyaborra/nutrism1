@@ -312,7 +312,11 @@ function CandidateView({
 
       <ul className="mt-2 flex flex-wrap gap-1.5">
         {c.items.map((i) => (
-          <li key={`${i.foodId}-${i.name}`} className="rounded-full bg-muted/70 px-2.5 py-0.5 text-xs">
+          <li
+            key={`${i.foodId}-${i.name}`}
+            className="rounded-full bg-muted/70 px-2.5 py-0.5 text-xs transition-colors hover:bg-primary/10"
+            title={i.perReference ? `${i.name} — nutrition computed per ${i.perReference} (database reference serving)` : i.name}
+          >
             {i.name} <span className="text-muted-foreground">· {i.quantity} {i.unit}</span>
           </li>
         ))}

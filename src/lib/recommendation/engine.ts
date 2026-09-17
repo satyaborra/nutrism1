@@ -117,7 +117,9 @@ async function generateCandidates(conditions: string[], allergies: string[], die
         foodId: food.id,
         name: food.canonicalName,
         quantity: item.quantity,
-        unit: food.servingUnit,
+        // Template unit (e.g. "katori", "pieces") — the user-meaningful unit.
+        // food.servingUnit ("1 katori") is the DB reference and goes in perReference.
+        unit: item.unit || food.servingUnit,
         perReference: food.servingUnit,
       });
     }
@@ -167,6 +169,7 @@ function scoreCandidate(
   recentRecIds: string[],
   downVotedIds: Set<string>,
   upvotedIds: Set<string>,
+  rejectedFoodSets: string[][],
 ): number {
   // How well does candidate fill remaining calories/protein without overshooting?
   const kcalFit = 1 - Math.min(1, Math.abs(remaining.calories - c.nutrition.calories) / Math.max(400, remaining.calories));
@@ -187,6 +190,16 @@ function scoreCandidate(
   // gentle boost for approved ones (persisted via thumbs up/down).
   if (downVotedIds.has(c.id)) score -= 0.5;
   if (upvotedIds.has(c.id)) score += 0.12;
+
+  // Feedback generalization: candidates that SHARE foods with a rejected template
+  // inherit part of the rejection (≥2 shared foods → strong, 1 → mild).
+  let similarityPenalty = 0;
+  for (const rejected of rejectedFoodSets) {
+    const shared = c.items.filter((i) => rejected.includes(i.foodId)).length;
+    if (shared >= 2) similarityPenalty += 0.25;
+    else if (shared === 1) similarityPenalty += 0.06;
+  }
+  score -= Math.min(similarityPenalty, 0.6);
 
   // Small cuisine variety nudge
   score += (c.items.length >= 3 ? 0.03 : 0);
@@ -268,12 +281,25 @@ export async function generateNextMealRecommendation(input: NextMealContextInput
   const downVotedIds = new Set(recentFeedback.filter((f) => f.rating === "down").map((f) => f.candidateId).filter((x): x is string => !!x));
   const upvotedIds = new Set(recentFeedback.filter((f) => f.rating === "up").map((f) => f.candidateId).filter((x): x is string => !!x));
 
+  // Feedback generalization: resolve rejected templates to their FOOD ids so the
+  // penalty extends beyond the exact template (similar meals inherit a share of it).
+  const rejectedFoodSets: string[][] = [];
+  if (downVotedIds.size > 0) {
+    const rejectedTemplates = await db.mealTemplate
+      .findMany({ where: { id: { in: [...downVotedIds] } }, select: { id: true, items: true } })
+      .catch(() => []);
+    for (const t of rejectedTemplates) {
+      const ids = safeParseTemplateItems(t.items).map((i) => i.foodId);
+      if (ids.length > 0) rejectedFoodSets.push(ids);
+    }
+  }
+
   // 1-2. Candidates + 3. deterministic nutrition + 4. constraint screening
   const candidates = await generateCandidates(conditions, allergies, dietaryPreference, mealSlot);
 
-  // 5. deterministic scoring (incl. feedback adjustments)
+  // 5. deterministic scoring (incl. feedback adjustments + similarity generalization)
   for (const c of candidates) {
-    c.score = scoreCandidate(c, remaining, recentRecIds, downVotedIds, upvotedIds);
+    c.score = scoreCandidate(c, remaining, recentRecIds, downVotedIds, upvotedIds, rejectedFoodSets);
   }
   candidates.sort((a, b) => b.score - a.score);
   const topCandidates = candidates.slice(0, 5);

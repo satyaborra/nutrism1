@@ -15,6 +15,7 @@ import { SummarySection } from "./summary";
 import { WeeklyTrends } from "./weekly-trends";
 import { HydrationWidget } from "./hydration-widget";
 import { AiCoach } from "./ai-coach";
+import { FoodLibrary } from "./food-explorer";
 import { FadeIn } from "./fade-in";
 import { useNutriStore, MEAL_TYPE_ICON } from "./store";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -87,6 +88,9 @@ export function Dashboard() {
           </FadeIn>
           <FadeIn delay={0.2}>
             <RecentMeals />
+          </FadeIn>
+          <FadeIn delay={0.25}>
+            <FoodLibrary />
           </FadeIn>
         </section>
         <section aria-label="Recommendations and settings" className="space-y-6 lg:col-span-2">
