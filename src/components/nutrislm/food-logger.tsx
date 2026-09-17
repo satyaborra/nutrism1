@@ -390,6 +390,7 @@ export function FoodLogger({ onLogged }: { onLogged: () => void }) {
               onClick={handleAnalyze}
               disabled={analyzing || (tab === "text" ? !text.trim() : !imageDataUrl)}
               size="lg"
+              className="shadow-sm shadow-primary/20 transition-all active:scale-[0.98]"
             >
               {analyzing ? (
                 <>
@@ -813,7 +814,7 @@ function ConfirmPreview({
       )}
       {result.note && <p className="text-xs text-muted-foreground">{result.note}</p>}
       <ComplianceAlerts compliance={result.compliance} conditions={[]} />
-      <Button onClick={onLog} disabled={logging || stale} className="w-full" size="lg">
+      <Button onClick={onLog} disabled={logging || stale} className="w-full shadow-sm shadow-primary/20 transition-all active:scale-[0.98]" size="lg">
         {logging ? (
           <>
             <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> Saving…

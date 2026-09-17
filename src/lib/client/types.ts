@@ -479,6 +479,19 @@ export interface CoachChatSendResponse {
   engineSource: "ai" | "deterministic_fallback";
 }
 
+export interface CoachThreadSummary {
+  threadId: string;
+  title: string;
+  messageCount: number;
+  lastActivity: string;
+  startedAt: string;
+}
+
+export interface CoachThreadsResponse {
+  threads: CoachThreadSummary[];
+  count: number;
+}
+
 export interface HealthResponse {
   status: string;
   service?: string;
@@ -612,6 +625,11 @@ export interface FavoriteDeleteResponse {
   id: string;
 }
 
+export interface FavoriteRenameResponse {
+  ok: boolean;
+  favorite: { id: string; name: string };
+}
+
 export interface FavoriteLogResponse {
   ok: boolean;
   mealId: string;
@@ -656,4 +674,31 @@ export interface WeeklyDigestResponse {
   hydration: { avgGlasses: number | null; mlPerGlass: number; goal: number };
   evidence: { source: string; document: string; section: string; text: string } | null;
   targets: { calories: number; protein: number };
+}
+
+// ---------- Milestones (deterministic achievements) ----------
+
+export interface Milestone {
+  id: string;
+  label: string;
+  description: string;
+  icon: string;
+  value: number;
+  goal: number;
+  achieved: boolean;
+  /** 0..1 — how far along this milestone is. */
+  progress: number;
+}
+
+export interface MilestonesResponse {
+  milestones: Milestone[];
+  achievedCount: number;
+  totalCount: number;
+  stats: {
+    totalMeals: number;
+    loggingStreak: number;
+    daysLogged90d: number;
+    hydrationHeroDays: number;
+    foodsTried: number;
+  };
 }

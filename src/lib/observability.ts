@@ -11,10 +11,10 @@ export type Operation =
   | "profile_get" | "profile_put" | "foods_search" | "health_check"
   | "meal_delete" | "meal_edit" | "recommendation_feedback" | "recommendation_feedback_get"
   | "hydration_get" | "hydration_post" | "weekly_summary"
-  | "coach_insight" | "coach_chat" | "coach_chat_get" | "nutrition_export"
+  | "coach_insight" | "coach_chat" | "coach_chat_get" | "coach_chat_threads" | "nutrition_export"
   | "foods_browse" | "food_detail" | "meal_relog"
-  | "favorites_list" | "favorites_create" | "favorites_delete" | "favorites_log"
-  | "weekly_digest";
+  | "favorites_list" | "favorites_create" | "favorites_delete" | "favorites_log" | "favorites_rename"
+  | "weekly_digest" | "milestones";
 
 export interface RequestContext {
   requestId: string;

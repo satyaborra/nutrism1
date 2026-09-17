@@ -9,8 +9,8 @@
 import { useEffect, useState } from "react";
 import { format, parseISO } from "date-fns";
 import {
-  ArrowDownRight, ArrowUpRight, BadgeCheck, BookOpen, CalendarDays, Droplets,
-  Flame, Scale, Trophy, UtensilsCrossed,
+  ArrowDownRight, ArrowUpRight, BadgeCheck, BookOpen, CalendarDays, Copy, Droplets,
+  Flame, Printer, Scale, Trophy, UtensilsCrossed,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,6 +21,7 @@ import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { formatNumber } from "@/lib/client/format";
 import type { DigestGrade, DigestMetric, WeeklyDigestResponse } from "@/lib/client/types";
@@ -59,10 +60,66 @@ function MetricRow({ m }: { m: DigestMetric }) {
   );
 }
 
+/** Deterministic plain-text rendering of the digest (same numbers as the UI). */
+function buildDigestText(d: WeeklyDigestResponse, overall: number): string {
+  const lines: string[] = [];
+  lines.push("NutriSLM — Weekly Digest");
+  lines.push(`Week of ${format(parseISO(`${d.weekOf}T12:00:00`), "d MMM yyyy")}`);
+  lines.push("=".repeat(32));
+  lines.push("");
+  lines.push(`Overall score: ${overall}/100`);
+  lines.push(`Days logged: ${d.daysLogged} of 7 · adherence ${d.adherence}% (±10% calorie band)`);
+  lines.push("");
+  lines.push("Averages vs targets:");
+  for (const m of d.metrics) {
+    const avg = m.avg !== null ? `${formatNumber(m.avg)} ${m.unit}` : "no data";
+    const tgt = m.target !== null ? ` (target ${formatNumber(m.target)} ${m.unit})` : "";
+    lines.push(`  · ${m.label}: ${avg}${tgt} — ${GRADE_UI[m.grade].label}`);
+  }
+  lines.push("");
+  if (d.bestDay) lines.push(`Closest to target: ${d.bestDay.date} · ${formatNumber(d.bestDay.calories)} kcal (${d.bestDay.deltaPct}% off)`);
+  if (d.worstSodiumDay && d.worstSodiumDay.sodium > 0) lines.push(`Saltiest day: ${d.worstSodiumDay.date} · ${formatNumber(d.worstSodiumDay.sodium)} mg sodium`);
+  lines.push(`Hydration: ${d.hydration.avgGlasses !== null ? `${d.hydration.avgGlasses} glasses/day avg` : "no water logged"} (goal ${d.hydration.goal})`);
+  lines.push(`Most logged: ${d.topFoods.length > 0 ? d.topFoods.slice(0, 3).map((f) => `${f.name} ×${f.count}`).join(", ") : "nothing yet"}`);
+  if (d.comparison.available) {
+    const cal = d.comparison.caloriesDelta !== null ? `${d.comparison.caloriesDelta >= 0 ? "+" : ""}${formatNumber(d.comparison.caloriesDelta)} kcal/day` : "";
+    const pro = d.comparison.proteinDelta !== null ? `${d.comparison.proteinDelta >= 0 ? "+" : ""}${d.comparison.proteinDelta} g/day protein` : "";
+    lines.push(`vs previous week: ${[cal, pro, `${d.comparison.mealsDelta >= 0 ? "+" : ""}${d.comparison.mealsDelta} meals`].filter(Boolean).join(", ")}`);
+  }
+  if (d.evidence) {
+    lines.push("");
+    lines.push(`Evidence: "${d.evidence.text}"`);
+    lines.push(`Source: ${d.evidence.source} · ${d.evidence.document}${d.evidence.section ? ` · ${d.evidence.section}` : ""}`);
+  }
+  lines.push("");
+  lines.push("Deterministic report — every number reproducible from your logged meals. Not medical advice.");
+  return lines.join("\n");
+}
+
+/** Open a clean printable view in a new window (kept self-contained, no app chrome). */
+function printDigest(d: WeeklyDigestResponse, overall: number) {
+  const text = buildDigestText(d, overall);
+  const w = window.open("", "_blank", "width=720,height=860");
+  if (!w) return false;
+  w.document.write(
+    `<!doctype html><html><head><meta charset="utf-8"><title>NutriSLM Weekly Digest</title>` +
+    `<style>body{font-family:ui-sans-serif,system-ui,sans-serif;max-width:640px;margin:40px auto;color:#1a2b22;line-height:1.55;padding:0 24px}` +
+    `pre{white-space:pre-wrap;font-family:inherit;font-size:14px}h1{font-size:20px;color:#059669}` +
+    `footer{margin-top:28px;border-top:1px solid #d1d5db;padding-top:10px;font-size:11px;color:#6b7280}</style></head><body>` +
+    `<h1>🥗 NutriSLM — Weekly Digest</h1><pre>${text.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c] ?? c)}</pre>` +
+    `<footer>Generated ${new Date().toLocaleString()} · deterministic report from your logged meals · not medical advice</footer>` +
+    `<script>window.onload=function(){window.print()}</script></body></html>`,
+  );
+  w.document.close();
+  return true;
+}
+
 export function WeeklyDigestDialog() {
   const [open, setOpen] = useState(false);
   const [data, setData] = useState<WeeklyDigestResponse | null>(null);
   const [error, setError] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const { toast } = useToast();
 
   useEffect(() => {
     if (!open || data) return;
@@ -81,7 +138,26 @@ export function WeeklyDigestDialog() {
     if (o) {
       setData(null);
       setError(false);
+      setCopied(false);
     }
+  }
+
+  async function handleCopy() {
+    if (!data) return;
+    try {
+      await navigator.clipboard.writeText(buildDigestText(data, overall));
+      setCopied(true);
+      toast({ title: "Digest copied", description: "A plain-text report is on your clipboard — paste it anywhere." });
+      window.setTimeout(() => setCopied(false), 2500);
+    } catch {
+      toast({ title: "Could not copy", description: "Your browser blocked clipboard access.", variant: "destructive" });
+    }
+  }
+
+  function handlePrint() {
+    if (!data) return;
+    const ok = printDigest(data, overall);
+    if (!ok) toast({ title: "Pop-up blocked", description: "Allow pop-ups for this site to print the digest.", variant: "destructive" });
   }
 
   const overall = data
@@ -268,6 +344,22 @@ export function WeeklyDigestDialog() {
               </p>
             </div>
           </ScrollArea>
+        )}
+
+        {data && (
+          <div className="flex items-center justify-between gap-2 border-t pt-3">
+            <p className="text-[10px] text-muted-foreground">Share or archive this report — numbers are reproducible.</p>
+            <div className="flex shrink-0 items-center gap-1.5">
+              <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={() => void handleCopy()}>
+                <Copy className={cn("h-3.5 w-3.5", copied && "text-primary")} aria-hidden />
+                {copied ? "Copied" : "Copy as text"}
+              </Button>
+              <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={handlePrint}>
+                <Printer className="h-3.5 w-3.5" aria-hidden />
+                Print
+              </Button>
+            </div>
+          </div>
         )}
       </DialogContent>
     </Dialog>

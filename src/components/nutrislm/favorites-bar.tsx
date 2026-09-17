@@ -3,17 +3,24 @@
 /**
  * Favorites quick-log bar — pinned meals ("favorites") as one-tap chips inside
  * the food logger's input step. Each chip shows the saved name + a server-estimated
- * kcal hint (deterministic: matched foods recomputed from the DB, unmatched snapshot).
+ * kcal hint (deterministic: matched foods recomputed from the DB, unmatched snapshot)
+ * plus a "N×" usage counter (server-tracked useCount). Chips are ordered by usage
+ * (most-logged first) so the daily staples surface naturally.
  * Clicking a chip asks for confirmation; the actual log POST recomputes everything
  * server-side (same trust model as re-log) and stamps source="favorite".
- * Chips can be unpinned with the small × (optimistic, rolled back on failure).
+ * Chips can be renamed (PATCH) or unpinned (×) — both optimistic with rollback.
  */
 import { useCallback, useEffect, useState } from "react";
-import { Loader2, Star, X } from "lucide-react";
+import { Loader2, Pencil, Star, X } from "lucide-react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { formatKcal } from "@/lib/client/format";
@@ -21,9 +28,10 @@ import type { FavoriteItem } from "@/lib/client/types";
 import { api } from "@/lib/client/api";
 import { MEAL_TYPE_ICON, mealLabel, useNutriStore } from "./store";
 
-/** Human label for a meal slot — capitalised ("breakfast" → "Breakfast"). */
-function slotLabel(slot: string): string {
-  return mealLabel(slot);
+/** Most-used first, then most-recently-updated (server order). */
+function byUsage(a: FavoriteItem, b: FavoriteItem): number {
+  if (b.useCount !== a.useCount) return b.useCount - a.useCount;
+  return 0;
 }
 
 export function FavoritesBar({ onLogged }: { onLogged: () => void }) {
@@ -33,11 +41,14 @@ export function FavoritesBar({ onLogged }: { onLogged: () => void }) {
   const [pending, setPending] = useState<FavoriteItem | null>(null);
   const [loggingId, setLoggingId] = useState<string | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
+  const [renaming, setRenaming] = useState<FavoriteItem | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [savingRename, setSavingRename] = useState(false);
 
   const load = useCallback(() => {
     api
       .favorites()
-      .then((res) => setFavorites(res.favorites))
+      .then((res) => setFavorites([...res.favorites].sort(byUsage)))
       .catch(() => setFavorites([]));
   }, []);
 
@@ -52,7 +63,7 @@ export function FavoritesBar({ onLogged }: { onLogged: () => void }) {
       const res = await api.logFavorite(pending.id);
       toast({
         title: `Logged ${res.name}`,
-        description: `${formatKcal(res.totals.calories)} added to ${slotLabel(res.mealType)} — recalculated from the food database.`,
+        description: `${formatKcal(res.totals.calories)} added to ${mealLabel(res.mealType)} — recalculated from the food database.`,
       });
       setPending(null);
       onLogged();
@@ -87,6 +98,39 @@ export function FavoritesBar({ onLogged }: { onLogged: () => void }) {
     }
   }
 
+  function openRename(fav: FavoriteItem) {
+    setRenaming(fav);
+    setRenameValue(fav.name);
+  }
+
+  async function handleRename() {
+    if (!renaming) return;
+    const name = renameValue.trim().slice(0, 80);
+    if (name.length < 2) {
+      toast({ title: "Name too short", description: "Give the favorite a name of at least 2 characters.", variant: "destructive" });
+      return;
+    }
+    if (name === renaming.name) {
+      setRenaming(null);
+      return;
+    }
+    setSavingRename(true);
+    try {
+      const res = await api.renameFavorite(renaming.id, name);
+      setFavorites((cur) => (cur ? cur.map((f) => (f.id === res.favorite.id ? { ...f, name: res.favorite.name } : f)) : cur));
+      toast({ title: "Favorite renamed", description: `Now called “${res.favorite.name}”.` });
+      setRenaming(null);
+    } catch (e) {
+      toast({
+        title: "Could not rename favorite",
+        description: e instanceof Error ? e.message : "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setSavingRename(false);
+    }
+  }
+
   if (favorites !== null && favorites.length === 0) return null;
 
   return (
@@ -110,29 +154,89 @@ export function FavoritesBar({ onLogged }: { onLogged: () => void }) {
           >
             <button
               type="button"
-              className="flex items-center gap-1.5 rounded-full py-2 pl-3 pr-7 text-left"
+              className="flex items-center gap-1.5 rounded-full py-2 pl-3 pr-12 text-left"
               onClick={() => setPending(fav)}
               aria-label={`Quick log ${fav.name} (about ${fav.estimateKcal} kilocalories)`}
             >
               <span className="text-sm" aria-hidden>{MEAL_TYPE_ICON[fav.mealType] ?? "🍽️"}</span>
-              <span className="max-w-44 truncate text-xs font-medium">{fav.name}</span>
+              <span className="max-w-36 truncate text-xs font-medium">{fav.name}</span>
+              {fav.useCount > 0 && (
+                <span
+                  className="rounded-full bg-amber-500/20 px-1.5 py-0.5 text-[9px] font-bold tabular-nums text-amber-700 dark:text-amber-300"
+                  title={`Quick-logged ${fav.useCount} time${fav.useCount === 1 ? "" : "s"}`}
+                >
+                  {fav.useCount}×
+                </span>
+              )}
               <span className="rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-amber-700 dark:text-amber-400">
                 ≈{fav.estimateKcal}
               </span>
             </button>
-            <button
-              type="button"
-              aria-label={`Remove ${fav.name} from favorites`}
-              title="Remove from favorites"
-              className="absolute right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-muted/80 text-muted-foreground transition-colors hover:bg-destructive/15 hover:text-destructive"
-              onClick={() => void handleRemove(fav)}
-              disabled={removingId === fav.id}
-            >
-              {removingId === fav.id ? <Loader2 className="h-2.5 w-2.5 animate-spin" aria-hidden /> : <X className="h-2.5 w-2.5" aria-hidden />}
-            </button>
+            <span className="absolute right-1.5 flex items-center gap-1">
+              <button
+                type="button"
+                aria-label={`Rename ${fav.name}`}
+                title="Rename favorite"
+                className="flex h-4 w-4 items-center justify-center rounded-full bg-muted/80 text-muted-foreground transition-colors hover:bg-primary/15 hover:text-primary"
+                onClick={() => openRename(fav)}
+              >
+                <Pencil className="h-2.5 w-2.5" aria-hidden />
+              </button>
+              <button
+                type="button"
+                aria-label={`Remove ${fav.name} from favorites`}
+                title="Remove from favorites"
+                className="flex h-4 w-4 items-center justify-center rounded-full bg-muted/80 text-muted-foreground transition-colors hover:bg-destructive/15 hover:text-destructive"
+                onClick={() => void handleRemove(fav)}
+                disabled={removingId === fav.id}
+              >
+                {removingId === fav.id ? <Loader2 className="h-2.5 w-2.5 animate-spin" aria-hidden /> : <X className="h-2.5 w-2.5" aria-hidden />}
+              </button>
+            </span>
           </div>
         ))}
       </div>
+
+      {/* Rename dialog */}
+      <Dialog open={renaming !== null} onOpenChange={(o) => !o && !savingRename && setRenaming(null)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <Pencil className="h-4 w-4 text-primary" aria-hidden />
+              Rename favorite
+            </DialogTitle>
+            <DialogDescription>
+              Pick a name you will recognise at a glance — it shows up as a one-tap chip here.
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            value={renameValue}
+            onChange={(e) => setRenameValue(e.target.value)}
+            maxLength={80}
+            aria-label="Favorite name"
+            placeholder="e.g. Weekend idli-sambar"
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                void handleRename();
+              }
+            }}
+            autoFocus
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRenaming(null)} disabled={savingRename}>Cancel</Button>
+            <Button onClick={() => void handleRename()} disabled={savingRename || renameValue.trim().length < 2}>
+              {savingRename ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> Saving…
+                </>
+              ) : (
+                "Save name"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog open={pending !== null} onOpenChange={(open) => !open && setPending(null)}>
         <AlertDialogContent>

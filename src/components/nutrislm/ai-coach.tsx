@@ -7,7 +7,7 @@
  * Includes a threaded follow-up chat grounded in the same verified numbers.
  */
 import { useEffect, useRef, useState } from "react";
-import { AlertTriangle, BadgeCheck, Lightbulb, MessageCircle, Plus, RefreshCw, Send, Sparkles, X } from "lucide-react";
+import { AlertTriangle, BadgeCheck, History, Lightbulb, MessageCircle, Plus, RefreshCw, Send, Sparkles, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,7 +16,18 @@ import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { useNutriStore } from "./store";
 import { api } from "@/lib/client/api";
-import type { CoachChatMessage, CoachInsightResponse } from "@/lib/client/types";
+import type { CoachChatMessage, CoachInsightResponse, CoachThreadSummary } from "@/lib/client/types";
+
+/** Compact relative time for thread history ("today", "yesterday", "3 d ago"). */
+function threadWhen(iso: string): string {
+  const then = new Date(iso);
+  const now = new Date();
+  const days = Math.floor((now.setHours(0, 0, 0, 0) - new Date(then).setHours(0, 0, 0, 0)) / 86_400_000);
+  if (days <= 0) return `today ${then.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+  if (days === 1) return "yesterday";
+  if (days < 7) return `${days} days ago`;
+  return then.toLocaleDateString([], { day: "numeric", month: "short" });
+}
 
 export function AiCoach() {
   const dataVersion = useNutriStore((s) => s.dataVersion);
@@ -184,6 +195,9 @@ function CoachChat() {
   const [loaded, setLoaded] = useState(false);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [threads, setThreads] = useState<CoachThreadSummary[] | null>(null);
+  const [switching, setSwitching] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
 
   // Lazy-load the latest thread the first time the chat is opened
@@ -241,6 +255,39 @@ function CoachChat() {
     }
   }
 
+  function toggleHistory() {
+    const next = !historyOpen;
+    setHistoryOpen(next);
+    if (next && threads === null) {
+      api
+        .coachChatThreads()
+        .then((res) => setThreads(res.threads))
+        .catch(() => setThreads([]));
+    }
+  }
+
+  async function openThread(t: CoachThreadSummary) {
+    if (switching) return;
+    setSwitching(true);
+    try {
+      const res = await api.coachChatThread(t.threadId);
+      setThreadId(res.threadId);
+      setMessages(res.messages);
+      setHistoryOpen(false);
+    } catch {
+      toast({ title: "Could not open that conversation", description: "Please try again in a moment.", variant: "destructive" });
+    } finally {
+      setSwitching(false);
+    }
+  }
+
+  function startNewThread() {
+    setThreadId(null);
+    setMessages([]);
+    setLoaded(true); // skip refetching the (now previous) latest thread
+    setHistoryOpen(false);
+  }
+
   return (
     <div className="mt-4 border-t border-primary/15 pt-3">
       {!open ? (
@@ -259,22 +306,63 @@ function CoachChat() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-6 gap-1 px-2 text-[11px] text-muted-foreground hover:text-primary"
-                  aria-label="Start a new conversation"
-                  onClick={() => {
-                    setThreadId(null);
-                    setMessages([]);
-                    setLoaded(true); // skip refetching the (now previous) latest thread
-                  }}
+                  className={cn("h-6 gap-1 px-2 text-[11px] text-muted-foreground hover:text-primary", historyOpen && "bg-primary/10 text-primary")}
+                  aria-label="Browse past conversations"
+                  aria-expanded={historyOpen}
+                  onClick={toggleHistory}
                 >
-                  <Plus className="h-3 w-3" aria-hidden /> New
+                  <History className="h-3 w-3" aria-hidden /> History
                 </Button>
               )}
-              <Button variant="ghost" size="icon" className="h-6 w-6" aria-label="Close chat" onClick={() => setOpen(false)}>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 gap-1 px-2 text-[11px] text-muted-foreground hover:text-primary"
+                aria-label="Start a new conversation"
+                onClick={startNewThread}
+              >
+                <Plus className="h-3 w-3" aria-hidden /> New
+              </Button>
+              <Button variant="ghost" size="icon" className="h-6 w-6" aria-label="Close chat" onClick={() => { setOpen(false); setHistoryOpen(false); }}>
                 <X className="h-3.5 w-3.5" aria-hidden />
               </Button>
             </div>
           </div>
+
+          {historyOpen && (
+            <div className="max-h-44 space-y-1 overflow-y-auto rounded-lg border bg-background/60 p-1.5 [scrollbar-width:thin]" role="list" aria-label="Past conversations">
+              {threads === null && (
+                <div className="space-y-1 p-1" aria-hidden>
+                  <div className="h-8 animate-pulse rounded-md bg-muted/70" />
+                  <div className="h-8 animate-pulse rounded-md bg-muted/70" />
+                </div>
+              )}
+              {threads !== null && threads.length === 0 && (
+                <p className="px-2 py-2 text-[11px] text-muted-foreground">No past conversations yet — your chats will appear here.</p>
+              )}
+              {threads?.map((t) => (
+                <button
+                  key={t.threadId}
+                  type="button"
+                  role="listitem"
+                  disabled={switching}
+                  onClick={() => void openThread(t)}
+                  aria-current={t.threadId === threadId}
+                  className={cn(
+                    "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors",
+                    t.threadId === threadId ? "bg-primary/10 ring-1 ring-primary/30" : "hover:bg-muted/70",
+                  )}
+                >
+                  <MessageCircle className={cn("h-3 w-3 shrink-0", t.threadId === threadId ? "text-primary" : "text-muted-foreground/60")} aria-hidden />
+                  <span className="min-w-0 flex-1 truncate text-[11px] font-medium">{t.title}</span>
+                  <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[9px] font-semibold tabular-nums text-muted-foreground">
+                    {t.messageCount}
+                  </span>
+                  <span className="w-16 shrink-0 text-right text-[9px] text-muted-foreground">{threadWhen(t.lastActivity)}</span>
+                </button>
+              ))}
+            </div>
+          )}
 
           {loaded && messages.length > 0 && (
             <div ref={listRef} className="max-h-64 space-y-2 overflow-y-auto pr-1 [scrollbar-width:thin]" aria-live="polite">

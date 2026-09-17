@@ -33,8 +33,11 @@ import type {
   FavoritesResponse,
   FavoriteCreateResponse,
   FavoriteDeleteResponse,
+  FavoriteRenameResponse,
   FavoriteLogResponse,
   WeeklyDigestResponse,
+  MilestonesResponse,
+  CoachThreadsResponse,
 } from "./types";
 
 export class ApiError extends Error {
@@ -128,6 +131,7 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ message, ...(threadId ? { threadId } : {}) }),
     }),
+  coachChatThreads: () => request<CoachThreadsResponse>("/api/nutrition/coach-chat/threads"),
   sendFeedback: (payload: FeedbackSendRequest) =>
     request<FeedbackSendResponse>("/api/nutrition/recommendation-feedback", {
       method: "POST",
@@ -167,11 +171,19 @@ export const api = {
     }),
   deleteFavorite: (favoriteId: string) =>
     request<FavoriteDeleteResponse>(`/api/nutrition/favorites/${encodeURIComponent(favoriteId)}`, { method: "DELETE" }),
+  renameFavorite: (favoriteId: string, name: string) =>
+    request<FavoriteRenameResponse>(`/api/nutrition/favorites/${encodeURIComponent(favoriteId)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ name }),
+    }),
   logFavorite: (favoriteId: string) =>
     request<FavoriteLogResponse>(`/api/nutrition/favorites/${encodeURIComponent(favoriteId)}/log`, { method: "POST" }),
 
   // Weekly digest — deterministic report card over the last 7 days
   weeklyDigest: () => request<WeeklyDigestResponse>("/api/nutrition/weekly-digest"),
+
+  // Milestones — deterministic achievements from the database
+  milestones: () => request<MilestonesResponse>("/api/nutrition/milestones"),
 
   /**
    * Download the meals CSV via blob so auth errors surface as ApiError instead of

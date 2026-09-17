@@ -48,6 +48,50 @@ const NUTRIENT_ROWS: { label: string; key: keyof MealDetail["totals"]; unit: str
 /** Common household units offered when editing a line (merged with the line's current unit). */
 const EDIT_UNITS = ["piece", "cup", "katori", "bowl", "glass", "serving", "tsp", "tbsp", "slice", "g", "ml", "medium", "small", "large"];
 
+/** A glyph hint per household unit so quantities feel tangible at a glance. */
+const UNIT_GLYPH: Record<string, string> = {
+  katori: "🥣", bowl: "🍜", cup: "🥛", glass: "🥛", piece: "◦", pieces: "◦",
+  slice: "🍞", serving: "🍽️", tsp: "🥄", tbsp: "🥄", medium: "🫑", small: "🫑", large: "🫑",
+  g: "⚖️", ml: "⚖️",
+};
+
+/** Substring-tolerant glyph lookup — line units may embed counts ("1 piece"). */
+function unitGlyph(unit: string): string {
+  const u = unit.toLowerCase();
+  for (const [key, glyph] of Object.entries(UNIT_GLYPH)) {
+    if (u.includes(key)) return glyph;
+  }
+  return "◦";
+}
+
+/**
+ * Portion visual — the edited quantity as filled dots (max 8) with an overflow
+ * counter, so “3 katori” reads at a glance without doing arithmetic.
+ */
+function PortionDots({ quantity, unit }: { quantity: number; unit: string }) {
+  const max = 8;
+  const whole = Math.max(0, Math.floor(quantity));
+  const shown = Math.min(whole, max);
+  const overflow = whole - shown;
+  const glyph = unitGlyph(unit);
+  if (whole === 0) return null;
+  return (
+    <span
+      className="inline-flex items-center gap-1"
+      title={`${quantity} × ${unit}`}
+      aria-label={`${quantity} times ${unit}`}
+    >
+      <span aria-hidden className="text-[11px] leading-none opacity-70">{glyph}</span>
+      <span aria-hidden className="flex items-center gap-0.5">
+        {Array.from({ length: shown }).map((_, i) => (
+          <span key={i} className="h-1.5 w-1.5 rounded-full bg-primary/70" />
+        ))}
+        {overflow > 0 && <span className="text-[9px] font-semibold tabular-nums text-primary">+{overflow}</span>}
+      </span>
+    </span>
+  );
+}
+
 function formatValue(n: number, decimals: number): string {
   if (decimals === 0) return String(Math.round(n));
   return (Math.round((n + Number.EPSILON) * 10) / 10).toFixed(1);
@@ -263,9 +307,12 @@ function EditMealDialog({
                       </SelectContent>
                     </Select>
                   </div>
-                  <p className={cn("pb-1.5 text-right text-xs tabular-nums", changed ? "font-semibold text-primary" : "text-muted-foreground")}>
-                    ≈{Math.round(approx)} kcal
-                  </p>
+                  <div className="flex flex-col items-end gap-1 pb-0.5">
+                    <p className={cn("text-xs tabular-nums", changed ? "font-semibold text-primary" : "text-muted-foreground")}>
+                      ≈{Math.round(approx)} kcal
+                    </p>
+                    {!st.removed && <PortionDots quantity={Number.isFinite(qNum) ? qNum : 0} unit={st.unit} />}
+                  </div>
                 </div>
                 {changed && !st.removed && (
                   <p className="mt-1.5 text-[10px] text-muted-foreground">

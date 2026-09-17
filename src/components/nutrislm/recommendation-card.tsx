@@ -160,7 +160,7 @@ export function RecommendationCard() {
             <p className="text-sm text-muted-foreground">
               Get a personalized meal idea based on what you&apos;ve eaten today.
             </p>
-            <Button onClick={() => fetchRec(false)} className="mt-1 shadow-sm shadow-primary/20">
+            <Button onClick={() => fetchRec(false)} className="mt-1 shadow-sm shadow-primary/20 transition-all active:scale-[0.98]">
               <Sparkles className="mr-2 h-4 w-4" aria-hidden /> Suggest my next meal
             </Button>
           </div>
@@ -345,7 +345,7 @@ function CandidateView({
         </p>
       )}
 
-      <Button size="sm" className="mt-2.5 w-full" onClick={onLog} disabled={logging || logged}>
+      <Button size="sm" className="mt-2.5 w-full transition-all active:scale-[0.98]" onClick={onLog} disabled={logging || logged}>
         {logged ? "Logged ✓" : logging ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" aria-hidden /> : null}
         {logged ? "Added to today" : "Log this meal"}
       </Button>

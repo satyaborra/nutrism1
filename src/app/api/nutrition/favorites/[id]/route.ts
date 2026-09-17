@@ -1,9 +1,10 @@
 /**
- * DELETE /api/nutrition/favorites/[id] — unpin a favorite.
+ * DELETE    /api/nutrition/favorites/[id] — unpin a favorite.
+ * PATCH     /api/nutrition/favorites/[id] — rename a favorite ({ name }).
  * Ownership-checked. Id is extracted from the URL path (withApi pattern).
  */
 import { NextRequest, NextResponse } from "next/server";
-import { withApi, AppError } from "@/lib/api-utils";
+import { withApi, parseJsonBody, AppError } from "@/lib/api-utils";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 
@@ -26,4 +27,33 @@ export const DELETE = withApi("favorites_delete", async ({ req }: { req: NextReq
 
   await db.favorite.delete({ where: { id } });
   return NextResponse.json({ ok: true, id });
+});
+
+export const PATCH = withApi("favorites_rename", async ({ req }: { req: NextRequest }): Promise<NextResponse> => {
+  const user = await requireUser();
+  const id = extractId(req.url);
+  const body = await parseJsonBody<{ name?: string }>(req);
+
+  const name = String(body.name ?? "").trim().slice(0, 80);
+  if (name.length < 2) {
+    throw new AppError("VALIDATION_FAILED", "Give the favorite a name of at least 2 characters.");
+  }
+
+  const favorite = await db.favorite.findUnique({ where: { id } });
+  if (!favorite) throw new AppError("NOT_FOUND", "That favorite no longer exists.");
+  if (favorite.userId !== user.id) throw new AppError("FORBIDDEN", "You can only rename your own favorites.");
+
+  try {
+    const updated = await db.favorite.update({
+      where: { id },
+      data: { name },
+    });
+    return NextResponse.json({ ok: true, favorite: { id: updated.id, name: updated.name } });
+  } catch (e: unknown) {
+    // P2002 = unique (userId, name) collision — another favorite already has this name.
+    if (typeof e === "object" && e !== null && "code" in e && (e as { code?: string }).code === "P2002") {
+      throw new AppError("CONFLICT", "You already have a favorite with that name.");
+    }
+    throw e;
+  }
 });
