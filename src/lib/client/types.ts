@@ -370,6 +370,27 @@ export interface WeeklySummaryResponse {
   avgCalories: number;
 }
 
+// ---------- AI coach / meal management ----------
+
+export interface CoachInsightResponse {
+  headline: string;
+  insight: string;
+  focus: string[];
+  evidenceSources: string[];
+  engineSource: "ai" | "deterministic_fallback";
+  generatedAt: string;
+  stale: boolean;
+  aiNote: string | null;
+}
+
+export interface MealDeleteResponse {
+  ok: boolean;
+  deletedMealId: string;
+  removedCalories: number;
+  removedFoods: number;
+  recommendationInvalidated: boolean;
+}
+
 // ---------- Health ----------
 
 export interface HealthResponse {

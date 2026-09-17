@@ -52,7 +52,7 @@ export function HydrationWidget() {
   const done = glasses >= goal;
 
   return (
-    <Card>
+    <Card className="transition-shadow duration-300 hover:shadow-md hover:shadow-teal-500/10">
       <CardHeader className="pb-2">
         <CardTitle className="flex items-center gap-2 text-base">
           <Droplets className="h-5 w-5 text-teal-600" aria-hidden />

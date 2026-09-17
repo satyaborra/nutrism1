@@ -4,7 +4,7 @@
  * Shared presentational pieces: compliance alerts, macro progress, calorie ring.
  * All numbers rendered via format helpers — never raw floats.
  */
-import { AlertTriangle, BadgeCheck, CircleHelp, BookOpen } from "lucide-react";
+import { AlertTriangle, BadgeCheck, CircleHelp, BookOpen, Flame, UtensilsCrossed, Wheat } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatGrams, formatKcal, formatMg, formatNumber, pct } from "@/lib/client/format";
@@ -170,10 +170,23 @@ export function CalorieRing({ consumed, target }: { consumed: number; target: nu
   );
 }
 
+function QuickStat({ icon, label, value, tone }: { icon: React.ReactNode; label: string; value: string; tone: string }) {
+  return (
+    <div className="flex items-center gap-2 rounded-full border bg-background/70 px-3 py-1.5 text-xs shadow-sm transition-colors hover:border-primary/30">
+      <span className={cn("flex h-5 w-5 items-center justify-center rounded-full", tone)} aria-hidden>
+        {icon}
+      </span>
+      <span className="text-muted-foreground">{label}</span>
+      <span className="font-semibold tabular-nums">{value}</span>
+    </div>
+  );
+}
+
 export function SummarySection({ summary }: { summary: DailySummaryResponse }) {
   const s = summary;
+  const remainingKcal = Math.max(0, Math.round((s.remaining.calories ?? 0) * 10) / 10);
   return (
-    <Card>
+    <Card className="transition-shadow duration-300 hover:shadow-md hover:shadow-primary/5">
       <CardHeader className="pb-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle className="text-base">Today at a glance</CardTitle>
@@ -185,6 +198,26 @@ export function SummarySection({ summary }: { summary: DailySummaryResponse }) {
         </p>
       </CardHeader>
       <CardContent className="space-y-4">
+        <div className="flex flex-wrap gap-2">
+          <QuickStat
+            icon={<UtensilsCrossed className="h-3 w-3 text-primary" />}
+            label="Meals logged"
+            value={String(s.meals.length)}
+            tone="bg-primary/10"
+          />
+          <QuickStat
+            icon={<Flame className="h-3 w-3 text-orange-600 dark:text-orange-400" />}
+            label="Still available"
+            value={formatKcal(remainingKcal)}
+            tone="bg-orange-500/10"
+          />
+          <QuickStat
+            icon={<Wheat className="h-3 w-3 text-lime-700 dark:text-lime-400" />}
+            label="Protein left"
+            value={formatGrams(Math.max(0, s.remaining.protein ?? 0))}
+            tone="bg-lime-600/10"
+          />
+        </div>
         <div className="flex flex-col items-center gap-4 sm:flex-row">
           <CalorieRing consumed={s.consumed.calories} target={s.targets.calories} />
           <div className="grid w-full flex-1 gap-3 sm:grid-cols-2">

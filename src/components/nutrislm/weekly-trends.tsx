@@ -6,11 +6,13 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { format, parseISO } from "date-fns";
-import { Flame, TrendingUp } from "lucide-react";
+import { Download, Flame, Loader2, TrendingUp } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useToast } from "@/hooks/use-toast";
 import { Bar, BarChart, CartesianGrid, Cell, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api } from "@/lib/client/api";
 import { useNutriStore } from "./store";
@@ -55,9 +57,11 @@ function ChartTooltip({ active, payload, metric }: { active?: boolean; payload?:
 
 export function WeeklyTrends() {
   const dataVersion = useNutriStore((s) => s.dataVersion);
+  const { toast } = useToast();
   const [data, setData] = useState<WeeklySummaryResponse | null>(null);
   const [error, setError] = useState(false);
   const [metric, setMetric] = useState<Metric>("calories");
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -75,6 +79,29 @@ export function WeeklyTrends() {
     };
   }, [dataVersion]);
 
+  async function handleExport() {
+    setExporting(true);
+    try {
+      const { url, filename } = await api.exportCsv(7);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+      toast({ title: "Export ready", description: `${filename} downloaded — one row per meal with the full nutrient panel.` });
+    } catch (e) {
+      toast({
+        title: "Export failed",
+        description: e instanceof Error ? e.message : "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setExporting(false);
+    }
+  }
+
   const chartData = useMemo(() => (data ? toChartData(data.days) : []), [data]);
   const target = data ? (metric === "calories" ? data.targets.calories : data.targets.protein) : 0;
   const avg = data ? (metric === "calories" ? data.avgCalories : Math.round((data.weekTotals.protein / 7) * 10) / 10) : 0;
@@ -82,7 +109,7 @@ export function WeeklyTrends() {
   const yMax = Math.ceil(Math.max(target, maxValue) * 1.2 / (metric === "calories" ? 100 : 10)) * (metric === "calories" ? 100 : 10);
 
   return (
-    <Card>
+    <Card className="transition-shadow duration-300 hover:shadow-md hover:shadow-primary/5">
       <CardHeader className="pb-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
@@ -104,12 +131,25 @@ export function WeeklyTrends() {
                 : "Aggregated from your logged meals"}
             </CardDescription>
           </div>
-          <Tabs value={metric} onValueChange={(v) => setMetric(v as Metric)}>
-            <TabsList className="h-8">
-              <TabsTrigger value="calories" className="text-xs">Calories</TabsTrigger>
-              <TabsTrigger value="protein" className="text-xs">Protein</TabsTrigger>
-            </TabsList>
-          </Tabs>
+          <div className="flex items-center gap-2">
+            <Tabs value={metric} onValueChange={(v) => setMetric(v as Metric)}>
+              <TabsList className="h-8">
+                <TabsTrigger value="calories" className="text-xs">Calories</TabsTrigger>
+                <TabsTrigger value="protein" className="text-xs">Protein</TabsTrigger>
+              </TabsList>
+            </Tabs>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-muted-foreground transition-colors hover:text-primary"
+              aria-label="Export the last 7 days of meals as CSV"
+              title="Export last 7 days as CSV"
+              onClick={() => void handleExport()}
+              disabled={exporting}
+            >
+              {exporting ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Download className="h-4 w-4" aria-hidden />}
+            </Button>
+          </div>
         </div>
       </CardHeader>
       <CardContent>

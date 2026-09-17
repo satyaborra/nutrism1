@@ -273,7 +273,7 @@ export function FoodLogger({ onLogged }: { onLogged: () => void }) {
   // ---------------- render ----------------
 
   return (
-    <Card id="log-food" className="scroll-mt-20">
+    <Card id="log-food" className="scroll-mt-20 transition-shadow duration-300 hover:shadow-md hover:shadow-primary/5">
       <CardHeader>
         <div className="flex items-center justify-between gap-2">
           <div>

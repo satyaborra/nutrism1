@@ -52,8 +52,15 @@ interface HandlerArgs {
 /**
  * Wrap a route handler with request-id, structured error mapping, and audit logging.
  * Usage: export const GET = withApi("health_check", async ({req, ctx}) => {...})
+ *
+ * opts.quietUnauthorized: audit expected 401s (e.g. session probes) as "ok" with a
+ * note instead of "error" — keeps logs/alerts focused on real failures.
  */
-export function withApi(operation: Operation, handler: (args: HandlerArgs) => Promise<NextResponse>) {
+export function withApi(
+  operation: Operation,
+  handler: (args: HandlerArgs) => Promise<NextResponse>,
+  opts: { quietUnauthorized?: boolean } = {},
+) {
   return async (req: NextRequest): Promise<NextResponse> => {
     const requestId = req.headers.get("x-request-id") || newRequestId();
     const ctx = startRequest(operation, requestId);
@@ -63,6 +70,10 @@ export function withApi(operation: Operation, handler: (args: HandlerArgs) => Pr
       return res;
     } catch (e) {
       if (e instanceof AppError) {
+        if (opts.quietUnauthorized && e.code === "UNAUTHORIZED") {
+          audit(ctx, "ok", undefined, { note: "expected unauthenticated probe" });
+          return errorResponse(e.code, e.message, requestId, e.details);
+        }
         audit(ctx, "error", e.code, { message: e.message.slice(0, 200) });
         return errorResponse(e.code, e.message, requestId, e.details);
       }

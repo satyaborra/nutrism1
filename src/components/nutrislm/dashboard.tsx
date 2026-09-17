@@ -14,6 +14,7 @@ import { ProfileDialog } from "./profile-dialog";
 import { SummarySection } from "./summary";
 import { WeeklyTrends } from "./weekly-trends";
 import { HydrationWidget } from "./hydration-widget";
+import { AiCoach } from "./ai-coach";
 import { FadeIn } from "./fade-in";
 import { useNutriStore, MEAL_TYPE_ICON } from "./store";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -73,6 +74,10 @@ export function Dashboard() {
 
       <FadeIn delay={0.1}>
         <WeeklyTrends />
+      </FadeIn>
+
+      <FadeIn delay={0.12}>
+        <AiCoach />
       </FadeIn>
 
       <div className="grid gap-6 lg:grid-cols-5">

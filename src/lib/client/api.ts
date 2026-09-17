@@ -6,12 +6,14 @@
 import type {
   AnalyzeFoodResponse,
   AuthResponse,
+  CoachInsightResponse,
   ConfirmFoodRequest,
   ConfirmFoodResponse,
   DailySummaryResponse,
   HydrationResponse,
   LogMealRequest,
   LogMealResponse,
+  MealDeleteResponse,
   MeResponse,
   NextMealResponse,
   ProfileResponse,
@@ -93,6 +95,39 @@ export const api = {
   hydrationUpdate: (payload: { delta?: number; glasses?: number }) =>
     request<HydrationResponse>("/api/nutrition/hydration", { method: "POST", body: JSON.stringify(payload) }),
   weeklySummary: () => request<WeeklySummaryResponse>("/api/nutrition/weekly-summary"),
+  deleteMeal: (mealId: string) =>
+    request<MealDeleteResponse>(`/api/nutrition/meals/${encodeURIComponent(mealId)}`, { method: "DELETE" }),
+  coachInsight: (refresh = false) =>
+    request<CoachInsightResponse>(`/api/nutrition/coach-insight${refresh ? "?refresh=1" : ""}`),
+
+  /**
+   * Download the meals CSV via blob so auth errors surface as ApiError instead of
+   * navigating to a raw JSON page. Returns the generated object URL (caller must revoke).
+   */
+  exportCsv: async (days = 7): Promise<{ url: string; filename: string }> => {
+    let res: Response;
+    try {
+      res = await fetch(`/api/nutrition/export?days=${days}`, { credentials: "same-origin", cache: "no-store" });
+    } catch {
+      throw new ApiError(0, "NETWORK", "Cannot reach the server. Check your connection and try again.");
+    }
+    if (!res.ok) {
+      let code = "UNKNOWN";
+      let message = `Export failed (${res.status}).`;
+      try {
+        const body = await res.json();
+        if (body?.error?.code) code = body.error.code;
+        if (body?.error?.message) message = body.error.message;
+      } catch {
+        /* non-JSON error body */
+      }
+      throw new ApiError(res.status, code, message);
+    }
+    const blob = await res.blob();
+    const disposition = res.headers.get("Content-Disposition") ?? "";
+    const match = disposition.match(/filename="?([^";]+)"?/);
+    return { url: URL.createObjectURL(blob), filename: match?.[1] ?? `nutrislm-meals-${days}d.csv` };
+  },
 };
 
 /** Helper for image File -> data URL (client side). */

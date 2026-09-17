@@ -86,7 +86,7 @@ export function RecommendationCard() {
   const isLogged = (c: RecommendationCandidate) => loggedIds.includes(c.id);
 
   return (
-    <Card id="recommendation" className="scroll-mt-20">
+    <Card id="recommendation" className="scroll-mt-20 transition-shadow duration-300 hover:shadow-md hover:shadow-primary/5">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <UtensilsCrossed className="h-5 w-5 text-primary" aria-hidden />
