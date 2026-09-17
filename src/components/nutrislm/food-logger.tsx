@@ -73,6 +73,7 @@ interface EditableLine {
 
 interface AnalysisMeta {
   draftId: string;
+  inputType: "text" | "image" | "image_text";
   detectedLanguage: AnalyzeFoodResponse["detectedLanguage"] | null;
   aiOk: boolean;
   aiNote: string | null;
@@ -136,6 +137,7 @@ export function FoodLogger({ onLogged }: { onLogged: () => void }) {
       const res = await api.analyzeFood(payload);
       setMeta({
         draftId: res.draftId,
+        inputType: tab === "photo" ? "image" : "text",
         detectedLanguage: res.detectedLanguage,
         aiOk: res.aiOk,
         aiNote: res.aiNote,
@@ -246,6 +248,8 @@ export function FoodLogger({ onLogged }: { onLogged: () => void }) {
         draftId: meta?.draftId,
         mealType,
         foods: foodsPayload(),
+        // Image-based drafts are labeled "image" so the history shows how it was logged
+        source: meta?.inputType === "image" ? "image" : meta?.inputType === "image_text" ? "image" : "text",
       });
       toast({
         title: res.duplicate ? "Meal already logged" : "Meal logged",

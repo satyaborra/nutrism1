@@ -26,6 +26,7 @@ model User {
   recommendations RecommendationHistory[]
   auditLogs       AuditLog[]
   hydration       HydrationLog[]
+  mealFeedback    RecommendationFeedback[]
 }
 
 model Profile {
@@ -238,6 +239,25 @@ model HydrationLog {
 
   @@unique([userId, date])
   @@index([userId, date])
+}
+
+// ============ FEEDBACK LOOP ============
+
+// Thumbs up/down on a generated recommendation — persisted signal for future
+// ranking improvements. One feedback per user per recommendation.
+model RecommendationFeedback {
+  id               String   @id @default(cuid())
+  userId           String
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  recommendationId String
+  candidateId      String?
+  mealSlot         String?
+  rating           String // up | down
+  reason           String? // optional free/chip reason for down-votes
+  createdAt        DateTime @default(now())
+
+  @@unique([userId, recommendationId])
+  @@index([userId, createdAt])
 }
 
 // ============ OBSERVABILITY ============

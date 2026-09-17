@@ -201,7 +201,7 @@ export interface LogMealRequest {
   mealType: string;
   foods: LogMealItemInput[];
   notes?: string;
-  source?: "text" | "manual" | "recommendation";
+  source?: "text" | "image" | "manual" | "recommendation";
 }
 
 export interface ConstraintViolation {
@@ -265,6 +265,7 @@ export interface MealDetail {
   loggedAt: string;
   foods: MealFoodDetail[];
   totals: NutritionValues;
+  compliance?: Compliance;
 }
 
 export interface RecentMealsResponse {
@@ -390,6 +391,64 @@ export interface MealDeleteResponse {
   removedFoods: number;
   recommendationInvalidated: boolean;
 }
+
+export interface MealEditLineInput {
+  lineId: string;
+  quantity?: number;
+  unit?: string;
+  remove?: boolean;
+}
+
+export interface MealEditResponse {
+  ok: boolean;
+  editedMealId: string;
+  previousCalories: number;
+  totals: NutritionValues;
+  foodsCount: number;
+  recommendationInvalidated: boolean;
+}
+
+// ---------- Recommendation feedback ----------
+
+export type FeedbackRating = "up" | "down";
+export type FeedbackReason =
+  | "too_many_carbs"
+  | "not_filling"
+  | "not_my_cuisine"
+  | "portion_off"
+  | "allergy_concern"
+  | "other";
+
+export interface FeedbackSendRequest {
+  recommendationId: string;
+  candidateId?: string;
+  mealSlot?: string;
+  rating: FeedbackRating;
+  reason?: FeedbackReason;
+}
+
+export interface FeedbackSendResponse {
+  ok: boolean;
+  feedback: {
+    recommendationId: string;
+    rating: FeedbackRating;
+    reason: FeedbackReason | null;
+    updatedAt: string;
+  };
+}
+
+export interface FeedbackGetResponse {
+  feedback: { recommendationId: string; rating: FeedbackRating; reason: FeedbackReason | null } | null;
+}
+
+export const FEEDBACK_REASON_LABELS: Record<FeedbackReason, string> = {
+  too_many_carbs: "Too many carbs for me",
+  not_filling: "Wouldn't fill me up",
+  not_my_cuisine: "Not my cuisine/taste",
+  portion_off: "Portion size is off",
+  allergy_concern: "Allergy concern",
+  other: "Something else",
+};
 
 // ---------- Health ----------
 

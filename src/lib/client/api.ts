@@ -10,10 +10,15 @@ import type {
   ConfirmFoodRequest,
   ConfirmFoodResponse,
   DailySummaryResponse,
+  FeedbackGetResponse,
+  FeedbackSendRequest,
+  FeedbackSendResponse,
   HydrationResponse,
   LogMealRequest,
   LogMealResponse,
   MealDeleteResponse,
+  MealEditLineInput,
+  MealEditResponse,
   MeResponse,
   NextMealResponse,
   ProfileResponse,
@@ -97,8 +102,22 @@ export const api = {
   weeklySummary: () => request<WeeklySummaryResponse>("/api/nutrition/weekly-summary"),
   deleteMeal: (mealId: string) =>
     request<MealDeleteResponse>(`/api/nutrition/meals/${encodeURIComponent(mealId)}`, { method: "DELETE" }),
+  editMeal: (mealId: string, payload: { foods: MealEditLineInput[]; notes?: string | null }) =>
+    request<MealEditResponse>(`/api/nutrition/meals/${encodeURIComponent(mealId)}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
   coachInsight: (refresh = false) =>
     request<CoachInsightResponse>(`/api/nutrition/coach-insight${refresh ? "?refresh=1" : ""}`),
+  sendFeedback: (payload: FeedbackSendRequest) =>
+    request<FeedbackSendResponse>("/api/nutrition/recommendation-feedback", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  getFeedback: (recommendationId: string) =>
+    request<FeedbackGetResponse>(
+      `/api/nutrition/recommendation-feedback?recommendationId=${encodeURIComponent(recommendationId)}`,
+    ),
 
   /**
    * Download the meals CSV via blob so auth errors surface as ApiError instead of
