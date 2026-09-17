@@ -1,0 +1,244 @@
+// NutriSLM — Multimodal Personalized Nutrition Intelligence Platform
+// Data model: normalized entities, canonical food identity is language-independent.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ============ IDENTITY ============
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String?
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  profile         Profile?
+  meals           Meal[]
+  drafts          AnalysisDraft[]
+  recommendations RecommendationHistory[]
+  auditLogs       AuditLog[]
+}
+
+model Profile {
+  id               String  @id @default(cuid())
+  userId           String  @unique
+  user             User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  age              Int?
+  sex              String? // male | female | other
+  heightCm         Float?
+  weightKg         Float?
+  activityLevel    String? // sedentary | light | moderate | active | very_active
+  goal             String? // lose_weight | maintain | gain_muscle
+  dietaryPreference String @default("vegetarian") // vegetarian | vegan | eggetarian | non_vegetarian
+  allergies        String  @default("[]")   // JSON string[]
+  healthConditions String  @default("[]")   // JSON string[] e.g. ["T2DM","CKD","CVD"]
+  language         String  @default("en")   // en | ta | te | hi | kn
+  // Optional manual overrides of computed daily targets (null = auto compute)
+  calorieTargetOverride Float?
+  proteinTargetOverride  Float?
+  updatedAt        DateTime @updatedAt
+}
+
+// ============ FOOD DOMAIN ============
+
+// Canonical, language-independent food entity with nutrient values per reference amount.
+model Food {
+  id             String  @id // canonical id, e.g. "IDLI"
+  canonicalName  String
+  category       String // grain | legume | vegetable | fruit | dairy | meat | egg | fat | sweet | beverage | dish | condiment
+  isVeg          Boolean @default(true)
+  containsEgg    Boolean @default(false)
+  // Reference amount the nutrients are expressed in (e.g. 1 piece 100g, or 100 g)
+  servingSize    Float   @default(100)
+  servingUnit    String  @default("g")
+  // Nutrients per reference amount (deterministic source of truth — NOT provided by LLM)
+  calories       Float // kcal
+  protein        Float // g
+  carbohydrates  Float // g
+  fat            Float // g
+  fiber          Float // g
+  sugar          Float   @default(0) // g
+  sodium         Float   @default(0) // mg
+  potassium      Float   @default(0) // mg
+  phosphorus     Float   @default(0) // mg
+  cholesterol    Float   @default(0) // mg
+  saturatedFat   Float   @default(0) // g
+  source         String  @default("IFCT2017")
+  sourceReference String?
+  tags           String  @default("[]") // JSON string[] e.g. ["breakfast","steamed","fermented","high_fiber"]
+  allergens      String  @default("[]") // JSON string[] e.g. ["dairy","nuts","gluten","egg","fish","soy"]
+  aliases        FoodAlias[]
+  mealFoods      MealFood[]
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+// Multilingual + romanized aliases resolving to ONE canonical food.
+model FoodAlias {
+  id              String @id @default(cuid())
+  foodId          String
+  food            Food   @relation(fields: [foodId], references: [id], onDelete: Cascade)
+  alias           String // display form
+  language        String @default("en") // en | ta | te | hi | kn | rom
+  normalizedAlias String // lowercase, punctuation-stripped lookup key
+  isPrimary       Boolean @default(false)
+
+  @@unique([normalizedAlias, foodId])
+  @@index([normalizedAlias])
+}
+
+// Reusable combo meal templates for deterministic candidate generation.
+model MealTemplate {
+  id          String @id @default(cuid())
+  name        String
+  description String?
+  mealSlots   String // JSON string[] e.g. ["breakfast","lunch"]
+  dietTags    String @default("[]") // JSON string[] e.g. ["vegetarian","vegan","eggetarian","non_vegetarian"]
+  items       String // JSON [{foodId, quantity, unit, preparation?}]
+  cuisine     String?
+  isActive    Boolean @default(true)
+}
+
+// ============ MEAL LOGGING ============
+
+model Meal {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  requestId String   @unique // idempotency key — prevents duplicate submissions
+  mealType  String // breakfast | lunch | snack | dinner
+  source    String   @default("text") // text | image | manual | recommendation
+  notes     String?
+  eatenAt   DateTime
+  loggedAt  DateTime @default(now())
+  // Denormalized totals snapshot (computed server-side by deterministic calculator)
+  totalCalories      Float
+  totalProtein       Float
+  totalCarbohydrates Float
+  totalFat           Float
+  totalFiber         Float
+  totalSugar         Float   @default(0)
+  totalSodium        Float   @default(0)
+  totalPotassium     Float   @default(0)
+  totalPhosphorus    Float   @default(0)
+  totalCholesterol   Float   @default(0)
+  totalSaturatedFat  Float   @default(0)
+  foods              MealFood[]
+
+  @@index([userId, eatenAt])
+}
+
+model MealFood {
+  id             String  @id @default(cuid())
+  mealId         String
+  meal           Meal    @relation(fields: [mealId], references: [id], onDelete: Cascade)
+  foodId         String?
+  food           Food?   @relation(fields: [foodId], references: [id]) // null when food unmapped (logged as-is)
+  displayName    String // what we show the user (canonical or user-provided name)
+  originalName   String? // raw AI/user text
+  quantity       Float
+  unit           String
+  preparation    String?
+  confidence     Float?
+  quantitySource String  @default("user") // user | estimated | unknown
+  // Per-line calculated snapshot (deterministic)
+  calories       Float
+  protein        Float
+  carbohydrates  Float
+  fat            Float
+  fiber          Float
+  sugar          Float   @default(0)
+  sodium         Float   @default(0)
+  potassium      Float   @default(0)
+  phosphorus     Float   @default(0)
+  cholesterol    Float   @default(0)
+  saturatedFat   Float   @default(0)
+}
+
+// Draft produced by AI perception (analyze-food). Never auto-logged.
+model AnalysisDraft {
+  id              String   @id @default(cuid()) // analysis_id
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status          String   @default("DETECTED") // DETECTED | NEEDS_CONFIRMATION | CONFIRMED | EXPIRED
+  inputType       String // text | image | image_text
+  rawInput        String?
+  imagePath       String? // disk path reference — never store big binaries in DB rows
+  detectedLanguage String? // en | ta | te | hi | kn | rom-xx | en (detected)
+  mealTypeGuess   String?
+  foods           String // JSON DetectedFood[]
+  createdAt       DateTime @default(now())
+  expiresAt       DateTime
+
+  @@index([userId, createdAt])
+}
+
+// ============ EVIDENCE / RAG ============
+
+model Evidence {
+  id       String @id @default(cuid())
+  source   String // WHO | ICMR-NIN | ADA | KDIGO | AHA | USDA | IFCT
+  document String
+  section  String?
+  text     String
+  tags     String @default("[]") // JSON string[] for retrieval boost
+  isActive Boolean @default(true)
+}
+
+// ============ PERSONALIZATION ============
+
+// Configurable, evidence-backed constraint rows — NOT hard-coded thresholds in code.
+model DiseaseConstraint {
+  id             String  @id @default(cuid())
+  condition      String // T2DM | CKD | CVD
+  nutrient       String // carbohydrates | sugar | sodium | potassium | phosphorus | protein | saturatedFat | cholesterol | fiber
+  comparator     String // max | min
+  perMealValue   Float?  // constraint applied per-meal/candidate
+  dailyValue     Float?  // constraint applied per-day
+  severity       String  @default("warning") // hard | warning
+  message        String
+  evidenceSource String // citation, e.g. "ADA Standards of Care 2024"
+  isActive       Boolean @default(true)
+}
+
+model RecommendationHistory {
+  id                 String   @id @default(cuid())
+  userId             String
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date               String // YYYY-MM-DD
+  mealSlot           String
+  selectedTemplateId String?
+  selectedFoodIds    String   @default("[]") // JSON string[]
+  reason             String?
+  engineSource       String   @default("ai") // ai | deterministic_fallback
+  candidatesSummary  String?  // JSON compact
+  createdAt          DateTime @default(now())
+
+  @@index([userId, date, mealSlot])
+}
+
+// ============ OBSERVABILITY ============
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  requestId String
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  operation String
+  status    String // ok | error
+  latencyMs Int?
+  errorType String?
+  meta      String? // JSON — never contains secrets
+  createdAt DateTime @default(now())
+
+  @@index([operation, createdAt])
+}

@@ -1,0 +1,2002 @@
+     1→You are the founding CTO, principal AI engineer, senior full-stack architect,
+     2→product designer, mobile engineer, data engineer, security engineer,
+     3→DevOps engineer, QA engineer, and technical product strategist for a startup.
+     4→
+     5→You are going to build a startup-grade product from scratch called:
+     6→
+     7→                         NUTRISLM
+     8→
+     9→Product name:
+    10→NutriSLM
+    11→
+    12→Working product vision:
+    13→
+    14→"An intelligent multimodal nutrition companion that understands what people
+    15→eat, calculates nutrition using trusted food databases, understands their
+    16→health context, and provides personalized, evidence-grounded next-meal
+    17→recommendations."
+    18→
+    19→Research title:
+    20→
+    21→"Multimodal Personalized Nutrition Analysis Using Vision-Language and
+    22→Domain-Specific Small Language Models"
+    23→
+    24→============================================================
+    25→                    IMPORTANT MINDSET
+    26→============================================================
+    27→
+    28→DO NOT treat this as a college CRUD project.
+    29→
+    30→DO NOT build a prototype that only looks good.
+    31→
+    32→DO NOT create fake/demo data to make screens appear functional.
+    33→
+    34→DO NOT create static recommendations.
+    35→
+    36→DO NOT hard-code nutrition values.
+    37→
+    38→DO NOT generate fake AI responses.
+    39→
+    40→DO NOT build isolated frontend screens that are not connected to the backend.
+    41→
+    42→DO NOT use the LLM as the source of truth for nutrition numbers.
+    43→
+    44→DO NOT expose API keys in the frontend or mobile application.
+    45→
+    46→DO NOT replace working architecture unnecessarily.
+    47→
+    48→Think like you are building the first production version of a real startup
+    49→that could eventually serve thousands or millions of users.
+    50→
+    51→Every feature must have:
+    52→
+    53→1. Product purpose
+    54→2. Technical architecture
+    55→3. Data flow
+    56→4. Error handling
+    57→5. Security
+    58→6. Scalability
+    59→7. Testability
+    60→8. Observability
+    61→9. Maintainability
+    62→
+    63→The system should be designed so that additional AI models, databases,
+    64→languages, diseases, food sources, and recommendation strategies can be
+    65→added later without rewriting the entire application.
+    66→
+    67→============================================================
+    68→                         PRODUCT
+    69→============================================================
+    70→
+    71→NutriSLM is a multimodal personalized nutrition platform.
+    72→
+    73→The user can:
+    74→
+    75→• upload a food image
+    76→• take a food photograph
+    77→• enter food using natural language
+    78→• enter food in Indian languages
+    79→• enter romanized Indian-language text
+    80→• confirm detected foods
+    81→• edit quantities
+    82→• log meals
+    83→• view nutrition
+    84→• track daily nutrition
+    85→• maintain a health profile
+    86→• specify allergies
+    87→• specify dietary preferences
+    88→• specify nutrition goals
+    89→• specify health conditions
+    90→• receive personalized next-meal recommendations
+    91→• understand why a meal was recommended
+    92→• view evidence supporting recommendations
+    93→• use the system from web and Android mobile
+    94→
+    95→Initial supported languages:
+    96→
+    97→English
+    98→Tamil
+    99→Telugu
+   100→Hindi
+   101→Kannada
+   102→
+   103→The architecture must allow future support for additional Indian languages.
+   104→
+   105→============================================================
+   106→                    CORE STARTUP VALUE
+   107→============================================================
+   108→
+   109→NutriSLM should solve the following problem:
+   110→
+   111→Current food/nutrition applications often separate:
+   112→
+   113→food recognition
+   114→nutrition calculation
+   115→diet recommendation
+   116→health personalization
+   117→clinical/dietary evidence
+   118→multilingual interaction
+   119→
+   120→NutriSLM integrates these into a single intelligent pipeline.
+   121→
+   122→The system combines:
+   123→
+   124→VISION-LANGUAGE FOOD UNDERSTANDING
+   125→+
+   126→FOOD NORMALIZATION
+   127→+
+   128→TRUSTED NUTRITION DATABASES
+   129→+
+   130→DETERMINISTIC NUTRITION CALCULATION
+   131→+
+   132→RETRIEVAL-AUGMENTED GENERATION
+   133→+
+   134→DISEASE-AWARE CONSTRAINTS
+   135→+
+   136→SMALL LANGUAGE MODEL REASONING
+   137→+
+   138→PERSONALIZATION
+   139→+
+   140→MULTILINGUAL INTERACTION
+   141→+
+   142→EXPLAINABLE RECOMMENDATIONS
+   143→
+   144→============================================================
+   145→                 HIGH-LEVEL ARCHITECTURE
+   146→============================================================
+   147→
+   148→Build the system around this architecture:
+   149→
+   150→                       USER
+   151→                        |
+   152→              ┌─────────┴─────────┐
+   153→              |                   |
+   154→             WEB               MOBILE
+   155→              |                   |
+   156→              └─────────┬─────────┘
+   157→                        |
+   158→                   API GATEWAY
+   159→                        |
+   160→                 APPLICATION API
+   161→                        |
+   162→        ┌───────────────┼────────────────┐
+   163→        |               |                |
+   164→        v               v                v
+   165→     USER DATA      FOOD PIPELINE     RECOMMENDER
+   166→        |               |                |
+   167→        |               v                |
+   168→        |        LANGUAGE DETECTION      |
+   169→        |               |                |
+   170→        |               v                |
+   171→        |             MISTRAL            |
+   172→        |               |                |
+   173→        |               v                |
+   174→        |       FOOD UNDERSTANDING       |
+   175→        |               |                |
+   176→        |               v                |
+   177→        |       FOOD NORMALIZATION       |
+   178→        |               |                |
+   179→        |               v                |
+   180→        |       NUTRITION DATABASE       |
+   181→        |               |                |
+   182→        |               v                |
+   183→        |    DETERMINISTIC CALCULATOR    |
+   184→        |               |                |
+   185→        |               v                |
+   186→        |          MEAL DATABASE         |
+   187→        |               |                |
+   188→        |               v                |
+   189→        |        DAILY NUTRITION STATE   |
+   190→        |                                |
+   191→        └───────────────┬────────────────┘
+   192→                        |
+   193→             ┌──────────┴──────────┐
+   194→             |                     |
+   195→             v                     v
+   196→            RAG             DISEASE ENGINE
+   197→             |                     |
+   198→             └──────────┬──────────┘
+   199→                        |
+   200→                        v
+   201→               CANDIDATE GENERATOR
+   202→                        |
+   203→                        v
+   204→                DETERMINISTIC
+   205→              CANDIDATE NUTRITION
+   206→                        |
+   207→                        v
+   208→                    MISTRAL
+   209→                        |
+   210→                        v
+   211→                 RECOMMENDATION
+   212→                    VALIDATOR
+   213→                        |
+   214→                        v
+   215→                LOCALIZATION
+   216→                        |
+   217→                        v
+   218→                  USER RESPONSE
+   219→
+   220→============================================================
+   221→                   NON-NEGOTIABLE
+   222→============================================================
+   223→
+   224→Separate AI reasoning from deterministic computation.
+   225→
+   226→Mistral/SLM is NOT the nutrition database.
+   227→
+   228→Mistral/SLM is NOT the authoritative calculator.
+   229→
+   230→Mistral/SLM is NOT the disease constraint engine.
+   231→
+   232→Mistral/SLM is NOT allowed to invent nutrition values.
+   233→
+   234→The system must work like:
+   235→
+   236→AI
+   237→→ understand food
+   238→
+   239→Database
+   240→→ provide nutrient references
+   241→
+   242→Deterministic calculator
+   243→→ calculate nutrition
+   244→
+   245→RAG
+   246→→ provide evidence
+   247→
+   248→Disease constraint engine
+   249→→ apply configured constraints
+   250→
+   251→SLM
+   252→→ reason/rank/explain
+   253→
+   254→Validator
+   255→→ verify output
+   256→
+   257→UI
+   258→→ display result
+   259→
+   260→============================================================
+   261→                     AI LAYER
+   262→============================================================
+   263→
+   264→Use Mistral-compatible AI infrastructure for:
+   265→
+   266→1. Food perception
+   267→2. Ingredient understanding
+   268→3. Food description
+   269→4. Portion estimation
+   270→5. Natural-language food understanding
+   271→6. Recommendation reasoning
+   272→7. Recommendation ranking
+   273→8. Explanation generation
+   274→9. Multilingual understanding where appropriate
+   275→
+   276→The exact Mistral model/API configuration must be isolated behind an AI
+   277→provider interface so that the model can be replaced later.
+   278→
+   279→Create an abstraction similar to:
+   280→
+   281→AIProvider
+   282→    |
+   283→    +-- MistralProvider
+   284→    |
+   285→    +-- FutureLocalSLMProvider
+   286→    |
+   287→    +-- FutureOtherProvider
+   288→
+   289→Never couple the entire application directly to one model.
+   290→
+   291→============================================================
+   292→                DOMAIN-SPECIFIC SLM
+   293→============================================================
+   294→
+   295→NutriSLM is intended to use a small language model for efficient,
+   296→resource-conscious nutrition reasoning.
+   297→
+   298→Important terminology:
+   299→
+   300→If the model has NOT actually been fine-tuned/domain-adapted,
+   301→call it:
+   302→
+   303→"small language model"
+   304→or
+   305→"nutrition-oriented SLM pipeline"
+   306→
+   307→Do NOT falsely claim that a generic model is domain-specific.
+   308→
+   309→If domain adaptation/fine-tuning is later implemented, document:
+   310→
+   311→• base model
+   312→• training dataset
+   313→• preprocessing
+   314→• instruction format
+   315→• training strategy
+   316→• quantization
+   317→• evaluation
+   318→• limitations
+   319→
+   320→The architecture must allow the local SLM to replace or complement
+   321→the hosted Mistral model in the future.
+   322→
+   323→============================================================
+   324→                  GENKIT ORCHESTRATION
+   325→============================================================
+   326→
+   327→Use Genkit as the AI orchestration layer where appropriate.
+   328→
+   329→Potential flows:
+   330→
+   331→detectLanguageFlow
+   332→analyzeFoodFlow
+   333→normalizeFoodFlow
+   334→retrieveEvidenceFlow
+   335→generateMealCandidatesFlow
+   336→recommendNextMealFlow
+   337→validateRecommendationFlow
+   338→translateResponseFlow
+   339→
+   340→Genkit should orchestrate AI operations.
+   341→
+   342→Do NOT move deterministic business logic into an LLM.
+   343→
+   344→Do NOT make Genkit responsible for database truth.
+   345→
+   346→============================================================
+   347→                 FOOD UNDERSTANDING
+   348→============================================================
+   349→
+   350→Input:
+   351→
+   352→IMAGE
+   353→or
+   354→TEXT
+   355→or
+   356→IMAGE + TEXT
+   357→
+   358→Example:
+   359→
+   360→"I ate two idlis and sambar."
+   361→
+   362→Example:
+   363→
+   364→"నేను రెండు ఇడ్లీలు మరియు సాంబార్ తిన్నాను"
+   365→
+   366→Example:
+   367→
+   368→"rendu idli sambar tinna"
+   369→
+   370→Example:
+   371→
+   372→food photograph
+   373→
+   374→The AI should return structured information.
+   375→
+   376→Example:
+   377→
+   378→{
+   379→  "meal_type": "Breakfast",
+   380→  "foods": [
+   381→    {
+   382→      "name": "Idli",
+   383→      "quantity": 2,
+   384→      "unit": "pieces",
+   385→      "preparation": "steamed",
+   386→      "confidence": 0.92,
+   387→      "quantity_source": "estimated"
+   388→    }
+   389→  ]
+   390→}
+   391→
+   392→Possible quantity_source:
+   393→
+   394→user
+   395→estimated
+   396→unknown
+   397→
+   398→The model must NOT silently invent unknown quantities.
+   399→
+   400→============================================================
+   401→                   FOOD NORMALIZATION
+   402→============================================================
+   403→
+   404→Create a canonical food normalization layer.
+   405→
+   406→The system must support:
+   407→
+   408→synonyms
+   409→spelling variations
+   410→regional names
+   411→Indian food names
+   412→native scripts
+   413→romanized Indian languages
+   414→raw/cooked variants
+   415→preparation methods
+   416→
+   417→Example:
+   418→
+   419→"idli"
+   420→"idly"
+   421→"இட்லி"
+   422→"ఇడ్లీ"
+   423→"ಇಡ್ಲಿ"
+   424→"इडली"
+   425→
+   426→must resolve to:
+   427→
+   428→canonical_food_id = IDLI
+   429→
+   430→Similarly:
+   431→
+   432→"sambar"
+   433→"sambhar"
+   434→"சாம்பார்"
+   435→"సాంబార్"
+   436→
+   437→must resolve to a canonical food entity.
+   438→
+   439→Canonical food identity must be language-independent.
+   440→
+   441→Never create separate nutrition records simply because the user used
+   442→a different language.
+   443→
+   444→============================================================
+   445→                  UNKNOWN FOOD POLICY
+   446→============================================================
+   447→
+   448→If food cannot be reliably mapped:
+   449→
+   450→return:
+   451→
+   452→UNKNOWN
+   453→
+   454→or:
+   455→
+   456→AMBIGUOUS
+   457→
+   458→Do NOT randomly map it to another food.
+   459→
+   460→Do NOT fabricate nutrition.
+   461→
+   462→Ask the user for confirmation when necessary.
+   463→
+   464→Example:
+   465→
+   466→User:
+   467→
+   468→"special village curry"
+   469→
+   470→System:
+   471→
+   472→"I couldn't confidently identify this food. Please select the closest
+   473→option or enter the food name."
+   474→
+   475→============================================================
+   476→             DETERMINISTIC NUTRITION ENGINE
+   477→============================================================
+   478→
+   479→This is one of the most important components.
+   480→
+   481→Nutrition must be calculated using trusted nutrition data.
+   482→
+   483→Potential sources:
+   484→
+   485→USDA FoodData Central
+   486→IFCT 2017
+   487→other verified nutrition datasets
+   488→
+   489→The database layer must provide nutrient values.
+   490→
+   491→For each food:
+   492→
+   493→NutrientValue = quantity × nutrient_per_reference_unit
+   494→
+   495→For a meal:
+   496→
+   497→MealNutrient = SUM(all food nutrient values)
+   498→
+   499→For daily nutrition:
+   500→
+   501→DailyConsumed = SUM(all persisted meals for the day)
+   502→
+   503→Remaining:
+   504→
+   505→Remaining = Target - Consumed
+   506→
+   507→Track at minimum:
+   508→
+   509→Calories
+   510→Protein
+   511→Carbohydrates
+   512→Fat
+   513→Fiber
+   514→Sugar
+   515→Sodium
+   516→Potassium
+   517→Phosphorus
+   518→Cholesterol
+   519→Saturated Fat
+   520→
+   521→Do NOT let an LLM calculate these numbers.
+   522→
+   523→============================================================
+   524→                 NUTRITION DATABASE
+   525→============================================================
+   526→
+   527→Create a clean abstraction:
+   528→
+   529→FoodRepository
+   530→
+   531→Possible implementation:
+   532→
+   533→PostgreSQL / SQLite during development
+   534→
+   535→Nutrition data should contain:
+   536→
+   537→food_id
+   538→canonical_name
+   539→aliases
+   540→language_aliases
+   541→category
+   542→serving_size
+   543→serving_unit
+   544→calories
+   545→protein
+   546→carbohydrates
+   547→fat
+   548→fiber
+   549→sugar
+   550→sodium
+   551→potassium
+   552→phosphorus
+   553→cholesterol
+   554→saturated_fat
+   555→source
+   556→source_reference
+   557→raw/cooked status
+   558→preparation method
+   559→
+   560→Design this so nutrition sources can be updated without changing the
+   561→application code.
+   562→
+   563→============================================================
+   564→                       RAG
+   565→============================================================
+   566→
+   567→Implement Retrieval-Augmented Generation.
+   568→
+   569→Recommended initial retrieval architecture:
+   570→
+   571→BGE embedding model
+   572→+
+   573→FAISS vector index
+   574→
+   575→Initial embedding model:
+   576→
+   577→BAAI/bge-small-en-v1.5
+   578→
+   579→Do not claim hybrid retrieval, BM25, cross-encoder reranking, HNSW,
+   580→or other techniques unless actually implemented and evaluated.
+   581→
+   582→Trusted evidence sources may include:
+   583→
+   584→USDA
+   585→IFCT
+   586→WHO
+   587→ICMR
+   588→ADA
+   589→KDIGO
+   590→AHA
+   591→
+   592→RAG evidence should contain metadata:
+   593→
+   594→{
+   595→  "evidence_id": "...",
+   596→  "source": "...",
+   597→  "document": "...",
+   598→  "section": "...",
+   599→  "text": "...",
+   600→  "score": 0.87
+   601→}
+   602→
+   603→Recommendations should be traceable to retrieved evidence when evidence
+   604→is relevant.
+   605→
+   606→============================================================
+   607→                 DISEASE-AWARE ENGINE
+   608→============================================================
+   609→
+   610→NutriSLM is a nutrition decision-support system.
+   611→
+   612→It must NOT claim to diagnose disease.
+   613→
+   614→It must NOT claim to treat disease.
+   615→
+   616→It must NOT guarantee medical safety.
+   617→
+   618→Initial conditions:
+   619→
+   620→Type 2 Diabetes Mellitus
+   621→Chronic Kidney Disease
+   622→Cardiovascular Disease
+   623→
+   624→The system should consider:
+   625→
+   626→T2DM:
+   627→• carbohydrate load
+   628→• added sugar
+   629→• fiber
+   630→• meal composition
+   631→• portion considerations
+   632→
+   633→CKD:
+   634→• sodium
+   635→• potassium
+   636→• phosphorus
+   637→• protein
+   638→• relevant user-provided clinical context
+   639→
+   640→CVD:
+   641→• sodium
+   642→• saturated fat
+   643→• trans fat
+   644→• cholesterol
+   645→• overall dietary composition
+   646→
+   647→Do NOT hard-code universal medical thresholds.
+   648→
+   649→Disease constraints must be configurable and evidence-backed.
+   650→
+   651→Possible states:
+   652→
+   653→COMPLIANT
+   654→POTENTIALLY_NON_COMPLIANT
+   655→INDETERMINATE
+   656→
+   657→When information is insufficient:
+   658→
+   659→do not guess.
+   660→
+   661→============================================================
+   662→                  USER HEALTH PROFILE
+   663→============================================================
+   664→
+   665→Create a user profile containing, where provided:
+   666→
+   667→age
+   668→height
+   669→weight
+   670→activity level
+   671→nutrition goal
+   672→dietary preference
+   673→allergies
+   674→health conditions
+   675→language preference
+   676→
+   677→Potential dietary preferences:
+   678→
+   679→vegetarian
+   680→vegan
+   681→eggetarian
+   682→non-vegetarian
+   683→etc.
+   684→
+   685→The architecture must support future expansion.
+   686→
+   687→============================================================
+   688→                      MEAL LOGGING
+   689→============================================================
+   690→
+   691→Meal logging must follow:
+   692→
+   693→IDLE
+   694→ ↓
+   695→DETECTED
+   696→ ↓
+   697→NEEDS_CONFIRMATION
+   698→ ↓
+   699→CONFIRMED
+   700→ ↓
+   701→CALCULATED
+   702→ ↓
+   703→LOGGING
+   704→ ↓
+   705→LOGGED
+   706→
+   707→High-confidence path may be:
+   708→
+   709→IDLE
+   710→ ↓
+   711→DETECTED
+   712→ ↓
+   713→CONFIRMED
+   714→ ↓
+   715→CALCULATED
+   716→ ↓
+   717→LOGGING
+   718→ ↓
+   719→LOGGED
+   720→
+   721→Do not repeatedly show confirmation.
+   722→
+   723→Use stable:
+   724→
+   725→draft_id
+   726→analysis_id
+   727→request_id
+   728→
+   729→React re-renders must NOT create a new analysis.
+   730→
+   731→============================================================
+   732→                    API DESIGN
+   733→============================================================
+   734→
+   735→Use clean REST APIs initially.
+   736→
+   737→Required:
+   738→
+   739→POST /api/nutrition/analyze-food
+   740→
+   741→POST /api/nutrition/confirm-food
+   742→
+   743→POST /api/nutrition/log-meal
+   744→
+   745→GET /api/nutrition/recent-meals
+   746→
+   747→GET /api/nutrition/daily-summary
+   748→
+   749→GET /api/nutrition/next-meal
+   750→
+   751→GET /api/profile
+   752→
+   753→PUT /api/profile
+   754→
+   755→The exact existing routes should be preserved if already implemented.
+   756→
+   757→============================================================
+   758→             ANALYZE FOOD API
+   759→============================================================
+   760→
+   761→POST:
+   762→
+   763→/api/nutrition/analyze-food
+   764→
+   765→Purpose:
+   766→
+   767→AI perception only.
+   768→
+   769→It creates a draft.
+   770→
+   771→It MUST NOT permanently log the meal.
+   772→
+   773→Return:
+   774→
+   775→analysis_id
+   776→draft_id
+   777→detected foods
+   778→confidence
+   779→possible ambiguities
+   780→
+   781→============================================================
+   782→              CONFIRM FOOD API
+   783→============================================================
+   784→
+   785→POST:
+   786→
+   787→/api/nutrition/confirm-food
+   788→
+   789→The user confirms or edits:
+   790→
+   791→food
+   792→quantity
+   793→unit
+   794→preparation
+   795→
+   796→Backend then:
+   797→
+   798→normalize
+   799→validate
+   800→lookup nutrition
+   801→calculate nutrition
+   802→
+   803→Return:
+   804→
+   805→confirmed foods
+   806→calculated nutrition
+   807→
+   808→============================================================
+   809→                LOG MEAL API
+   810→============================================================
+   811→
+   812→POST:
+   813→
+   814→/api/nutrition/log-meal
+   815→
+   816→IMPORTANT:
+   817→
+   818→Never trust nutrition values sent by the frontend.
+   819→
+   820→Frontend sends:
+   821→
+   822→foods
+   823→quantities
+   824→units
+   825→meal_type
+   826→
+   827→Backend:
+   828→
+   829→validate
+   830→normalize
+   831→lookup
+   832→calculate
+   833→persist
+   834→
+   835→Use:
+   836→
+   837→BEGIN TRANSACTION
+   838→→ validate
+   839→→ normalize
+   840→→ lookup
+   841→→ calculate
+   842→→ create meal
+   843→→ COMMIT
+   844→
+   845→If any critical operation fails:
+   846→
+   847→ROLLBACK
+   848→
+   849→Meal logging should remain independent from recommendation generation.
+   850→
+   851→============================================================
+   852→                  DATABASE SOURCE OF TRUTH
+   853→============================================================
+   854→
+   855→Persisted meals are authoritative.
+   856→
+   857→Daily summary must be calculated from persisted meals.
+   858→
+   859→Recent meals must be calculated from persisted meals.
+   860→
+   861→Do not maintain a competing "official" nutrition state only in React.
+   862→
+   863→============================================================
+   864→                  RECENT MEALS
+   865→============================================================
+   866→
+   867→Never show:
+   868→
+   869→"Confirmed Foods"
+   870→
+   871→"Logged Meal"
+   872→
+   873→when actual food names are available.
+   874→
+   875→Show:
+   876→
+   877→Breakfast
+   878→
+   879→2 Idli + Sambar
+   880→
+   881→350 kcal
+   882→16.2 g protein
+   883→
+   884→Use structured foods internally.
+   885→
+   886→Even if SQLite uses serialized text internally, expose a clean API:
+   887→
+   888→foods: []
+   889→
+   890→to the frontend.
+   891→
+   892→============================================================
+   893→                    DAILY SUMMARY
+   894→============================================================
+   895→
+   896→Display:
+   897→
+   898→Calories
+   899→Protein
+   900→Carbohydrates
+   901→Fat
+   902→Fiber
+   903→
+   904→and additional nutrients where appropriate.
+   905→
+   906→All values must come from backend aggregation.
+   907→
+   908→Use centralized formatting.
+   909→
+   910→Example:
+   911→
+   912→17.560000000000002
+   913→
+   914→must become:
+   915→
+   916→17.6 g
+   917→
+   918→Calories:
+   919→
+   920→350 kcal
+   921→
+   922→not:
+   923→
+   924→350.00000000004 kcal
+   925→
+   926→============================================================
+   927→                 NEXT MEAL ENGINE
+   928→============================================================
+   929→
+   930→This is a core differentiator.
+   931→
+   932→Next-meal recommendations must be context-aware.
+   933→
+   934→Consider:
+   935→
+   936→current date
+   937→current time
+   938→meal slot
+   939→today's meals
+   940→meal history
+   941→daily consumed nutrition
+   942→remaining nutrition
+   943→health profile
+   944→health conditions
+   945→allergies
+   946→dietary preferences
+   947→nutrition goals
+   948→previous recommendations
+   949→RAG evidence
+   950→
+   951→Meal transitions:
+   952→
+   953→Breakfast → Lunch
+   954→Lunch → Dinner
+   955→Dinner → Next Day Breakfast
+   956→Snack → Next appropriate meal
+   957→
+   958→============================================================
+   959→               CANDIDATE GENERATION
+   960→============================================================
+   961→
+   962→Never ask the LLM to invent an arbitrary meal and nutrition simultaneously.
+   963→
+   964→Generate multiple candidate meals.
+   965→
+   966→Example:
+   967→
+   968→Candidate A:
+   969→Dal + Roti + Salad
+   970→
+   971→Candidate B:
+   972→Vegetable Khichdi + Curd
+   973→
+   974→Candidate C:
+   975→Grilled Chicken + Vegetables
+   976→
+   977→Calculate candidate nutrition deterministically.
+   978→
+   979→Then apply:
+   980→
+   981→1. Allergies
+   982→2. Dietary restrictions
+   983→3. Disease constraints
+   984→4. Nutrition suitability
+   985→5. Personalization
+   986→6. Evidence
+   987→
+   988→Only then send valid candidates to Mistral for reasoning/ranking.
+   989→
+   990→============================================================
+   991→                  RECOMMENDATION
+   992→============================================================
+   993→
+   994→Mistral should receive structured candidates.
+   995→
+   996→Example:
+   997→
+   998→Candidate A:
+   999→480 kcal
+  1000→22g protein
+  1001→...
+  1002→
+  1003→Candidate B:
+  1004→430 kcal
+  1005→18g protein
+  1006→...
+  1007→
+  1008→Candidate C:
+  1009→390 kcal
+  1010→35g protein
+  1011→...
+  1012→
+  1013→Mistral selects/ranks and explains.
+  1014→
+  1015→Mistral must NOT change the provided nutrition values.
+  1016→
+  1017→============================================================
+  1018→                RECOMMENDATION VALIDATOR
+  1019→============================================================
+  1020→
+  1021→Every recommendation must pass validation.
+  1022→
+  1023→Validate:
+  1024→
+  1025→nutrition consistency
+  1026→allergies
+  1027→dietary restrictions
+  1028→disease constraints
+  1029→unsupported claims
+  1030→evidence
+  1031→JSON schema
+  1032→required fields
+  1033→candidate existence
+  1034→nutrition values
+  1035→language
+  1036→portion plausibility
+  1037→
+  1038→If validation fails:
+  1039→
+  1040→reject recommendation
+  1041→regenerate
+  1042→or return deterministic safe fallback
+  1043→
+  1044→Do not show an invalid AI response to the user.
+  1045→
+  1046→============================================================
+  1047→              RECOMMENDATION INVALIDATION
+  1048→============================================================
+  1049→
+  1050→When a new meal is logged:
+  1051→
+  1052→1. Persist meal.
+  1053→2. Refresh daily summary.
+  1054→3. Refresh recent meals.
+  1055→4. Invalidate previous recommendation.
+  1056→5. Recalculate meal context.
+  1057→6. Generate candidates.
+  1058→7. Apply constraints.
+  1059→8. Retrieve evidence.
+  1060→9. Ask Mistral to rank.
+  1061→10. Validate.
+  1062→11. Localize.
+  1063→12. Display.
+  1064→
+  1065→Recommendation cache MUST NOT be based only on:
+  1066→
+  1067→user_id
+  1068→
+  1069→Use context such as:
+  1070→
+  1071→user_id
+  1072→date
+  1073→meal_slot
+  1074→meal_history
+  1075→daily_nutrition_state
+  1076→health_profile
+  1077→diet_preferences
+  1078→
+  1079→============================================================
+  1080→              PREVENT REPETITIVE RECOMMENDATIONS
+  1081→============================================================
+  1082→
+  1083→Do not repeatedly recommend:
+  1084→
+  1085→"Balanced Vegetable Bowl"
+  1086→
+  1087→unless it is genuinely the best valid candidate.
+  1088→
+  1089→Store recommendation history.
+  1090→
+  1091→Potential fields:
+  1092→
+  1093→recommendation_id
+  1094→user_id
+  1095→date
+  1096→meal_slot
+  1097→selected_candidate_id
+  1098→reason
+  1099→source
+  1100→created_at
+  1101→
+  1102→Use recommendation history as one signal to diversify suggestions.
+  1103→
+  1104→============================================================
+  1105→                  MULTILINGUAL SYSTEM
+  1106→============================================================
+  1107→
+  1108→Initial languages:
+  1109→
+  1110→English
+  1111→Tamil
+  1112→Telugu
+  1113→Hindi
+  1114→Kannada
+  1115→
+  1116→Architecture:
+  1117→
+  1118→USER
+  1119→ ↓
+  1120→LANGUAGE DETECTION
+  1121→ ↓
+  1122→IndicLID where appropriate
+  1123→ ↓
+  1124→romanized/native input
+  1125→ ↓
+  1126→MISTRAL
+  1127→ ↓
+  1128→FOOD NORMALIZATION
+  1129→ ↓
+  1130→CANONICAL FOOD ID
+  1131→ ↓
+  1132→NUTRITION DATABASE
+  1133→ ↓
+  1134→DETERMINISTIC CALCULATION
+  1135→ ↓
+  1136→RAG
+  1137→ ↓
+  1138→DISEASE ENGINE
+  1139→ ↓
+  1140→RECOMMENDATION
+  1141→ ↓
+  1142→LOCALIZED RESPONSE
+  1143→ ↓
+  1144→USER
+  1145→
+  1146→Do not translate the entire application into English and assume the
+  1147→problem is solved.
+  1148→
+  1149→Preserve:
+  1150→
+  1151→original user text
+  1152→detected language
+  1153→canonical food identity
+  1154→localized display name
+  1155→
+  1156→============================================================
+  1157→             ROMANIZED LANGUAGE SUPPORT
+  1158→============================================================
+  1159→
+  1160→Support examples such as:
+  1161→
+  1162→"rendu idli tinna"
+  1163→
+  1164→"nenu rendu idli tinna"
+  1165→
+  1166→"naan rendu idli saapten"
+  1167→
+  1168→"2 dosa sapten"
+  1169→
+  1170→The system should identify the likely language where possible.
+  1171→
+  1172→Do NOT assume:
+  1173→
+  1174→Latin alphabet = English.
+  1175→
+  1176→============================================================
+  1177→                  UI INTERNATIONALIZATION
+  1178→============================================================
+  1179→
+  1180→Create:
+  1181→
+  1182→en.json
+  1183→ta.json
+  1184→te.json
+  1185→hi.json
+  1186→kn.json
+  1187→
+  1188→Never hard-code UI translations inside components.
+  1189→
+  1190→Support:
+  1191→
+  1192→English
+  1193→தமிழ்
+  1194→తెలుగు
+  1195→हिन्दी
+  1196→ಕನ್ನಡ
+  1197→
+  1198→Language selector should persist the user's preference.
+  1199→
+  1200→============================================================
+  1201→                   WEB APPLICATION
+  1202→============================================================
+  1203→
+  1204→Create a premium responsive web application.
+  1205→
+  1206→Primary pages:
+  1207→
+  1208→1. Landing Page
+  1209→2. Login
+  1210→3. Sign Up
+  1211→4. Dashboard
+  1212→5. Food Logger
+  1213→6. Food Confirmation
+  1214→7. Nutrition Result
+  1215→8. Recent Meals
+  1216→9. Meal History
+  1217→10. Next Meal
+  1218→11. Health Profile
+  1219→12. Settings
+  1220→13. Language Selection
+  1221→
+  1222→============================================================
+  1223→                    DASHBOARD
+  1224→============================================================
+  1225→
+  1226→The dashboard should show:
+  1227→
+  1228→Today's nutrition
+  1229→Calories
+  1230→Protein
+  1231→Carbohydrates
+  1232→Fat
+  1233→Fiber
+  1234→
+  1235→Daily progress
+  1236→
+  1237→Recent meals
+  1238→
+  1239→Next meal recommendation
+  1240→
+  1241→Recommendation explanation
+  1242→
+  1243→Evidence/source indicator
+  1244→
+  1245→Health-aware context
+  1246→
+  1247→Do not overwhelm the user with technical information.
+  1248→
+  1249→============================================================
+  1250→                  FOOD LOGGER UI
+  1251→============================================================
+  1252→
+  1253→Primary actions:
+  1254→
+  1255→TAKE PHOTO
+  1256→UPLOAD PHOTO
+  1257→ENTER FOOD
+  1258→
+  1259→Natural language input.
+  1260→
+  1261→After analysis:
+  1262→
+  1263→Detected foods
+  1264→
+  1265→Quantity
+  1266→
+  1267→Preparation
+  1268→
+  1269→Confidence
+  1270→
+  1271→Edit
+  1272→
+  1273→Delete
+  1274→
+  1275→Add Food
+  1276→
+  1277→Confirm Meal
+  1278→
+  1279→After logging:
+  1280→
+  1281→Meal Logged ✓
+  1282→
+  1283→Nutrition summary
+  1284→
+  1285→Then:
+  1286→
+  1287→Next Meal Recommendation
+  1288→
+  1289→============================================================
+  1290→                 MOBILE APPLICATION
+  1291→============================================================
+  1292→
+  1293→Create a real Android application.
+  1294→
+  1295→Preferred:
+  1296→
+  1297→React Native
+  1298→+
+  1299→Expo
+  1300→+
+  1301→TypeScript
+  1302→
+  1303→Do NOT use a WebView wrapper.
+  1304→
+  1305→Create:
+  1306→
+  1307→/mobile
+  1308→
+  1309→The mobile application must use the same backend as the web application.
+  1310→
+  1311→Architecture:
+  1312→
+  1313→                    NUTRISLM BACKEND
+  1314→                           |
+  1315→              ┌────────────┴────────────┐
+  1316→              |                         |
+  1317→             WEB                     ANDROID
+  1318→              |                         |
+  1319→              └────────────┬────────────┘
+  1320→                           |
+  1321→                     SAME DATA
+  1322→                     SAME AI
+  1323→                     SAME RAG
+  1324→                     SAME LOGIC
+  1325→
+  1326→============================================================
+  1327→                  MOBILE NAVIGATION
+  1328→============================================================
+  1329→
+  1330→Bottom navigation:
+  1331→
+  1332→HOME
+  1333→LOG FOOD
+  1334→MEALS
+  1335→PROFILE
+  1336→
+  1337→Screens:
+  1338→
+  1339→Home
+  1340→Food Logger
+  1341→Food Confirmation
+  1342→Nutrition Result
+  1343→Recent Meals
+  1344→Meal History
+  1345→Next Meal
+  1346→Health Profile
+  1347→Language Settings
+  1348→Profile
+  1349→
+  1350→============================================================
+  1351→                    MOBILE CAMERA
+  1352→============================================================
+  1353→
+  1354→Implement real camera functionality.
+  1355→
+  1356→Flow:
+  1357→
+  1358→Camera
+  1359→ ↓
+  1360→Preview
+  1361→ ↓
+  1362→Retake / Analyze
+  1363→ ↓
+  1364→Backend
+  1365→ ↓
+  1366→Mistral
+  1367→ ↓
+  1368→Confirmation
+  1369→ ↓
+  1370→Nutrition
+  1371→ ↓
+  1372→Log
+  1373→
+  1374→Also support:
+  1375→
+  1376→Gallery upload
+  1377→
+  1378→Request only necessary Android permissions.
+  1379→
+  1380→============================================================
+  1381→                    MOBILE SECURITY
+  1382→============================================================
+  1383→
+  1384→Never store:
+  1385→
+  1386→MISTRAL_API_KEY
+  1387→
+  1388→inside the APK.
+  1389→
+  1390→Never expose:
+  1391→
+  1392→database credentials
+  1393→private service keys
+  1394→RAG credentials
+  1395→
+  1396→The mobile application should only communicate with backend APIs.
+  1397→
+  1398→============================================================
+  1399→                  MOBILE CONFIG
+  1400→============================================================
+  1401→
+  1402→Use:
+  1403→
+  1404→EXPO_PUBLIC_API_URL
+  1405→
+  1406→for API configuration.
+  1407→
+  1408→Never use localhost for a physical Android device.
+  1409→
+  1410→Development:
+  1411→
+  1412→LAN IP
+  1413→
+  1414→Production:
+  1415→
+  1416→HTTPS backend.
+  1417→
+  1418→============================================================
+  1419→                       AUTH
+  1420→============================================================
+  1421→
+  1422→Reuse existing authentication if present.
+  1423→
+  1424→Do not build duplicate authentication systems.
+  1425→
+  1426→Use secure token storage.
+  1427→
+  1428→Handle:
+  1429→
+  1430→login
+  1431→logout
+  1432→session expiration
+  1433→401
+  1434→403
+  1435→
+  1436→============================================================
+  1437→                   STARTUP DESIGN
+  1438→============================================================
+  1439→
+  1440→The UI should feel like a startup product.
+  1441→
+  1442→Design characteristics:
+  1443→
+  1444→clean
+  1445→premium
+  1446→minimal
+  1447→human
+  1448→trustworthy
+  1449→modern
+  1450→fast
+  1451→mobile-first
+  1452→
+  1453→Avoid:
+  1454→
+  1455→generic AI-dashboard appearance
+  1456→excessive gradients
+  1457→clutter
+  1458→unnecessary animations
+  1459→huge cards
+  1460→technical jargon
+  1461→
+  1462→The product should communicate:
+  1463→
+  1464→"simple nutrition intelligence"
+  1465→
+  1466→rather than:
+  1467→
+  1468→"complex AI research system"
+  1469→
+  1470→============================================================
+  1471→                PRODUCT TRUST LAYER
+  1472→============================================================
+  1473→
+  1474→Because this is health/nutrition software, transparency is critical.
+  1475→
+  1476→For AI-derived information, distinguish:
+  1477→
+  1478→AI interpretation
+  1479→
+  1480→from:
+  1481→
+  1482→database-derived nutrition
+  1483→
+  1484→from:
+  1485→
+  1486→evidence-derived guidance
+  1487→
+  1488→from:
+  1489→
+  1490→personalized recommendation
+  1491→
+  1492→Example:
+  1493→
+  1494→Food identified by AI
+  1495→
+  1496→Nutrition calculated from food database
+  1497→
+  1498→Recommendation grounded in dietary evidence
+  1499→
+  1500→Do not claim:
+  1501→
+  1502→100% accurate
+  1503→medical diagnosis
+  1504→medical treatment
+  1505→guaranteed safety
+  1506→
+  1507→Use:
+  1508→
+  1509→"nutrition decision support"
+  1510→"evidence-grounded recommendation"
+  1511→"AI-assisted food understanding"
+  1512→"deterministic nutrition calculation"
+  1513→
+  1514→============================================================
+  1515→                    EXPLAINABILITY
+  1516→============================================================
+  1517→
+  1518→For every recommendation, provide:
+  1519→
+  1520→Recommended meal
+  1521→
+  1522→Why it was recommended
+  1523→
+  1524→Nutrition contribution
+  1525→
+  1526→Personalization factors
+  1527→
+  1528→Relevant evidence
+  1529→
+  1530→Example:
+  1531→
+  1532→"Recommended because your current intake is relatively low in fiber and
+  1533→protein, while this meal fits your dietary preference and the constraints
+  1534→associated with your selected health profile."
+  1535→
+  1536→Keep explanations understandable.
+  1537→
+  1538→============================================================
+  1539→                  DATA MODEL
+  1540→============================================================
+  1541→
+  1542→Design clean entities.
+  1543→
+  1544→User
+  1545→
+  1546→Profile
+  1547→
+  1548→Food
+  1549→
+  1550→FoodAlias
+  1551→
+  1552→Meal
+  1553→
+  1554→MealFood
+  1555→
+  1556→NutritionRecord
+  1557→
+  1558→DailyNutrition
+  1559→
+  1560→Recommendation
+  1561→
+  1562→RecommendationHistory
+  1563→
+  1564→Evidence
+  1565→
+  1566→DiseaseConstraint
+  1567→
+  1568→UserPreference
+  1569→
+  1570→LanguagePreference
+  1571→
+  1572→AnalysisDraft
+  1573→
+  1574→AuditLog
+  1575→
+  1576→Use normalized relationships.
+  1577→
+  1578→Avoid storing everything in one large table.
+  1579→
+  1580→============================================================
+  1581→               OBSERVABILITY
+  1582→============================================================
+  1583→
+  1584→Create structured logging.
+  1585→
+  1586→Track:
+  1587→
+  1588→request_id
+  1589→user_id where appropriate
+  1590→operation
+  1591→latency
+  1592→status
+  1593→error_type
+  1594→
+  1595→Track AI latency.
+  1596→
+  1597→Track:
+  1598→
+  1599→food analysis latency
+  1600→RAG latency
+  1601→recommendation latency
+  1602→database latency
+  1603→
+  1604→Never log:
+  1605→
+  1606→API keys
+  1607→passwords
+  1608→private tokens
+  1609→sensitive raw health information unnecessarily
+  1610→
+  1611→============================================================
+  1612→                       API VERSIONING
+  1613→============================================================
+  1614→
+  1615→Design APIs so they can evolve.
+  1616→
+  1617→Prefer:
+  1618→
+  1619→/api/v1/...
+  1620→
+  1621→if the current project structure allows it.
+  1622→
+  1623→Do not break the existing frontend without migration.
+  1624→
+  1625→============================================================
+  1626→                    ERROR HANDLING
+  1627→============================================================
+  1628→
+  1629→Handle:
+  1630→
+  1631→400
+  1632→401
+  1633→403
+  1634→404
+  1635→409
+  1636→422
+  1637→429
+  1638→500
+  1639→502
+  1640→503
+  1641→timeouts
+  1642→network failures
+  1643→invalid AI output
+  1644→database failures
+  1645→
+  1646→Return structured errors.
+  1647→
+  1648→Example:
+  1649→
+  1650→{
+  1651→  "error": {
+  1652→    "code": "FOOD_NOT_RECOGNIZED",
+  1653→    "message": "We couldn't confidently identify this food.",
+  1654→    "request_id": "..."
+  1655→  }
+  1656→}
+  1657→
+  1658→Never expose stack traces to users.
+  1659→
+  1660→============================================================
+  1661→                 AI FAILURE POLICY
+  1662→============================================================
+  1663→
+  1664→AI failure must NOT destroy core application functionality.
+  1665→
+  1666→Example:
+  1667→
+  1668→Mistral unavailable:
+  1669→
+  1670→User should still be able to log a manually selected food.
+  1671→
+  1672→Recommendation unavailable:
+  1673→
+  1674→Meal should remain successfully logged.
+  1675→
+  1676→RAG unavailable:
+  1677→
+  1678→Do not fabricate evidence.
+  1679→
+  1680→Validator failure:
+  1681→
+  1682→Do not display invalid recommendation.
+  1683→
+  1684→============================================================
+  1685→                 IDEMPOTENCY
+  1686→============================================================
+  1687→
+  1688→Meal logging must prevent duplicate submissions.
+  1689→
+  1690→Use:
+  1691→
+  1692→request_id
+  1693→idempotency_key
+  1694→
+  1695→where appropriate.
+  1696→
+  1697→If the user double-clicks:
+  1698→
+  1699→CONFIRM MEAL
+  1700→
+  1701→the system must not create two meals.
+  1702→
+  1703→============================================================
+  1704→                    TRANSACTIONS
+  1705→============================================================
+  1706→
+  1707→Meal logging:
+  1708→
+  1709→BEGIN
+  1710→ ↓
+  1711→validate
+  1712→ ↓
+  1713→normalize
+  1714→ ↓
+  1715→lookup
+  1716→ ↓
+  1717→calculate
+  1718→ ↓
+  1719→persist
+  1720→ ↓
+  1721→COMMIT
+  1722→
+  1723→If anything fails:
+  1724→
+  1725→ROLLBACK
+  1726→
+  1727→Only after successful commit:
+  1728→
+  1729→refresh daily state
+  1730→invalidate recommendation
+  1731→generate next recommendation
+  1732→
+  1733→============================================================
+  1734→                     TESTING
+  1735→============================================================
+  1736→
+  1737→Create serious automated tests.
+  1738→
+  1739→Do NOT write placeholder tests.
+  1740→
+  1741→Test:
+  1742→
+  1743→Food analysis
+  1744→Food normalization
+  1745→Unknown food
+  1746→Ambiguous food
+  1747→Confirmation
+  1748→Meal logging
+  1749→Duplicate logging
+  1750→Nutrition calculation
+  1751→Daily summary
+  1752→Recent meals
+  1753→Recommendation
+  1754→Recommendation invalidation
+  1755→Recommendation diversity
+  1756→Allergy filtering
+  1757→Diet filtering
+  1758→Disease constraints
+  1759→RAG retrieval
+  1760→Validator
+  1761→Multilingual input
+  1762→Romanized input
+  1763→Authentication
+  1764→API failures
+  1765→AI failures
+  1766→Database failures
+  1767→Transactions
+  1768→Mobile navigation
+  1769→Camera
+  1770→Gallery
+  1771→Language switching
+  1772→
+  1773→============================================================
+  1774→              CRITICAL NUTRITION TEST
+  1775→============================================================
+  1776→
+  1777→Mock Mistral:
+  1778→
+  1779→"2 eggs = 10 kcal"
+  1780→
+  1781→Nutrition database/calculator:
+  1782→
+  1783→actual database value
+  1784→
+  1785→Expected:
+  1786→
+  1787→Application MUST use the database/calculator value.
+  1788→
+  1789→The model's nutrition value must be ignored.
+  1790→
+  1791→============================================================
+  1792→             CROSS-LANGUAGE TEST
+  1793→============================================================
+  1794→
+  1795→These equivalent inputs:
+  1796→
+  1797→English:
+  1798→"I ate two idlis."
+  1799→
+  1800→Tamil:
+  1801→"நான் இரண்டு இட்லி சாப்பிட்டேன்."
+  1802→
+  1803→Telugu:
+  1804→"నేను రెండు ఇడ్లీలు తిన్నాను."
+  1805→
+  1806→Hindi:
+  1807→"मैंने दो इडली खाई।"
+  1808→
+  1809→Kannada:
+  1810→"ನಾನು ಎರಡು ಇಡ್ಲಿ ತಿಂದೆ."
+  1811→
+  1812→Romanized:
+  1813→"rendu idli tinna"
+  1814→
+  1815→must resolve to:
+  1816→
+  1817→canonical_food_id = IDLI
+  1818→quantity = 2
+  1819→
+  1820→and produce equivalent nutrition under the same serving assumptions.
+  1821→
+  1822→============================================================
+  1823→               SECURITY REQUIREMENTS
+  1824→============================================================
+  1825→
+  1826→Follow secure coding principles.
+  1827→
+  1828→Protect:
+  1829→
+  1830→authentication
+  1831→authorization
+  1832→API keys
+  1833→database credentials
+  1834→user data
+  1835→health-profile information
+  1836→
+  1837→Validate all input.
+  1838→
+  1839→Sanitize input where appropriate.
+  1840→
+  1841→Apply rate limiting to expensive AI endpoints.
+  1842→
+  1843→Never trust frontend calculations.
+  1844→
+  1845→Never trust client-provided authorization claims.
+  1846→
+  1847→============================================================
+  1848→                 SCALABILITY
+  1849→============================================================
+  1850→
+  1851→Design for growth.
+  1852→
+  1853→Today:
+  1854→
+  1855→single deployment
+  1856→
+  1857→Future:
+  1858→
+  1859→API service
+  1860→AI service
+  1861→RAG service
+  1862→recommendation service
+  1863→worker/queue
+  1864→database
+  1865→cache
+  1866→object storage
+  1867→
+  1868→Do not prematurely create dozens of microservices.
+  1869→
+  1870→Start modular monolith where appropriate.
+  1871→
+  1872→Keep clean service boundaries so extraction into services is possible later.
+  1873→
+  1874→============================================================
+  1875→                 PERFORMANCE
+  1876→============================================================
+  1877→
+  1878→Optimize:
+  1879→
+  1880→AI requests
+  1881→database queries
+  1882→image processing
+  1883→RAG retrieval
+  1884→frontend rendering
+  1885→mobile rendering
+  1886→
+  1887→Do not call AI repeatedly because of UI re-renders.
+  1888→
+  1889→Use caching carefully.
+  1890→
+  1891→Never cache personalized recommendations using only user_id.
+  1892→
+  1893→============================================================
+  1894→                    FILE STORAGE
+  1895→============================================================
+  1896→
+  1897→Food images should be stored securely.
+  1898→
+  1899→Do not store large images directly in relational database records.
+  1900→
+  1901→Use object storage where appropriate.
+  1902→
+  1903→Store:
+  1904→
+  1905→image_url/reference
+  1906→analysis_id
+  1907→created_at
+  1908→
+  1909→instead of huge binary data in standard tables unless there is a clear reason.
+  1910→
+  1911→============================================================
+  1912→                   ADMIN / INTERNAL
+  1913→============================================================
+  1914→
+  1915→Design the backend so future internal tools can support:
+  1916→
+  1917→food database management
+  1918→nutrition source updates
+  1919→RAG document ingestion
+  1920→evidence management
+  1921→recommendation monitoring
+  1922→system health
+  1923→AI usage
+  1924→error monitoring
+  1925→
+  1926→Do not necessarily build the complete admin panel now unless useful.
+  1927→
+  1928→Create extensible architecture.
+  1929→
+  1930→============================================================
+  1931→                   RAG INGESTION
+  1932→============================================================
+  1933→
+  1934→Create a reproducible ingestion pipeline.
+  1935→
+  1936→Example:
+  1937→
+  1938→documents
+  1939→ ↓
+  1940→cleaning
+  1941→ ↓
+  1942→chunking
+  1943→ ↓
+  1944→metadata
+  1945→ ↓
+  1946→embedding
+  1947→ ↓
+  1948→FAISS index
+  1949→ ↓
+  1950→retrieval
+  1951→
+  1952→Store source metadata.
+  1953→
+  1954→Never lose source attribution.
+  1955→
+  1956→============================================================
+  1957→                RESEARCH MODE
+  1958→============================================================
+  1959→
+  1960→The product should support future research evaluation.
+  1961→
+  1962→Track metrics such as:
+  1963→
+  1964→Food recognition accuracy
+  1965→Food normalization accuracy
+  1966→Nutrition calculation error
+  1967→Recommendation validity
+  1968→Recommendation acceptance
+  1969→Recommendation diversity
+  1970→RAG retrieval quality
+  1971→Cross-language consistency
+  1972→AI latency
+  1973→End-to-end latency
+  1974→
+  1975→Do not fabricate metrics.
+  1976→
+  1977→Only display metrics that have actually been measured.
+  1978→
+  1979→============================================================
+  1980→               PRODUCT ANALYTICS
+  1981→============================================================
+  1982→
+  1983→Design privacy-conscious analytics.
+  1984→
+  1985→Potential events:
+  1986→
+  1987→food_analysis_started
+  1988→food_analysis_completed
+  1989→food_confirmed
+  1990→meal_logged
+  1991→recommendation_generated
+  1992→recommendation_viewed
+  1993→recommendation_accepted
+  1994→recommendation_rejected
+  1995→language_changed
+  1996→
+  1997→Do not collect unnecessary sensitive information.
+  1998→
+  1999→============================================================
+  2000→                   STARTUP ROADMAP
+
+[showing lines 1-2000 of 2650; use offset=2001 with limit to continue reading]
