@@ -7,17 +7,18 @@
  */
 import { useState, useEffect } from "react";
 import {
+  ArrowRight,
   BookOpen,
   BrainCircuit,
   ChevronDown,
   FlaskConical,
+  HeartHandshake,
   Loader2,
   RefreshCw,
   Salad,
   Sparkles,
   ThumbsDown,
   ThumbsUp,
-  UtensilsCrossed,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -34,6 +35,7 @@ import type { NextMealResponse, RecommendationCandidate } from "@/lib/client/typ
 import { FEEDBACK_REASON_LABELS } from "@/lib/client/types";
 import type { FeedbackReason, FeedbackRating } from "@/lib/client/types";
 import { api, ApiError } from "@/lib/client/api";
+import { mealImageFor } from "@/lib/client/meal-images";
 import { useNutriStore } from "./store";
 
 export function RecommendationCard() {
@@ -141,11 +143,13 @@ export function RecommendationCard() {
   const isLogged = (c: RecommendationCandidate) => loggedIds.includes(c.id);
 
   return (
-    <Card id="recommendation" className="scroll-mt-20 transition-shadow duration-300 hover:shadow-md hover:shadow-primary/5">
+    <Card id="recommendation" className="scroll-mt-20 border-primary/15 shadow-sm transition-shadow duration-300 hover:shadow-md hover:shadow-primary/5">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <UtensilsCrossed className="h-5 w-5 text-primary" aria-hidden />
-          What should I eat next?
+          <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-amber-100 text-amber-600 dark:bg-amber-500/20 dark:text-amber-400">
+            <Sparkles className="h-4 w-4" aria-hidden />
+          </span>
+          Next Meal Recommendation
         </CardTitle>
         <CardDescription>
           Ranked for your remaining macros, health conditions and preferences — with cited evidence.
@@ -153,15 +157,21 @@ export function RecommendationCard() {
       </CardHeader>
       <CardContent className="space-y-3">
         {!rec && !loading && !error && (
-          <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed bg-gradient-to-b from-primary/5 to-transparent p-6 text-center">
+          <div className="relative flex flex-col items-center gap-3 overflow-hidden rounded-xl border border-dashed bg-gradient-to-b from-primary/5 to-transparent p-6 text-center">
+            <img
+              src="/images/meal-generic.png"
+              alt=""
+              aria-hidden
+              className="pointer-events-none absolute -right-6 -top-6 h-24 w-24 rounded-full object-cover opacity-20"
+            />
             <span className="flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-primary/20 to-teal-500/10 ring-1 ring-primary/20">
               <Salad className="h-6 w-6 text-primary" aria-hidden />
             </span>
             <p className="text-sm text-muted-foreground">
               Get a personalized meal idea based on what you&apos;ve eaten today.
             </p>
-            <Button onClick={() => fetchRec(false)} className="mt-1 shadow-sm shadow-primary/20 transition-all active:scale-[0.98]">
-              <Sparkles className="mr-2 h-4 w-4" aria-hidden /> Suggest my next meal
+            <Button onClick={() => fetchRec(false)} className="mt-1 gap-2 shadow-sm shadow-primary/20 transition-all active:scale-[0.98]">
+              <Sparkles className="h-4 w-4" aria-hidden /> Suggest my next meal
             </Button>
           </div>
         )}
@@ -186,15 +196,14 @@ export function RecommendationCard() {
 
         {rec && !loading && (
           <div className="space-y-3">
-            {rec.explanation && (
-              <div className="rounded-xl border border-primary/25 bg-primary/5 p-3">
-                <p className="flex items-start gap-2 text-xs leading-relaxed text-foreground/90">
-                  <BrainCircuit className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden />
-                  <span>{rec.explanation}</span>
-                </p>
-              </div>
-            )}
-            <CandidateView c={rec.selected} primary logged={isLogged(rec.selected)} onLog={() => logCandidate(rec.selected)} logging={loggingAlt === rec.selected.id} />
+            <CandidateView
+              c={rec.selected}
+              primary
+              explanation={rec.explanation}
+              logged={isLogged(rec.selected)}
+              onLog={() => logCandidate(rec.selected)}
+              logging={loggingAlt === rec.selected.id}
+            />
 
             {/* Feedback loop — persisted per recommendation */}
             <FeedbackRow
@@ -267,16 +276,28 @@ export function RecommendationCard() {
 function CandidateView({
   c,
   primary = false,
+  explanation,
   logged,
   onLog,
   logging,
 }: {
   c: RecommendationCandidate;
   primary?: boolean;
+  /** AI explanation — shown as the "Why this meal?" collapsible on the primary. */
+  explanation?: string | null;
   logged: boolean;
   onLog: () => void;
   logging: boolean;
 }) {
+  const img = mealImageFor(c.name, ...c.items.map((i) => i.name));
+  const pills = [
+    { label: formatKcal(c.nutrition.calories), sub: "kcal", strong: true },
+    { label: formatGrams(c.nutrition.protein), sub: "Protein" },
+    { label: formatGrams(c.nutrition.carbohydrates), sub: "Carbs" },
+    { label: formatGrams(c.nutrition.fat), sub: "Fat" },
+    { label: formatGrams(c.nutrition.fiber), sub: "Fiber" },
+  ];
+
   return (
     <div
       className={cn(
@@ -287,14 +308,15 @@ function CandidateView({
       )}
     >
       {primary && <span aria-hidden className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-primary/60 via-teal-400/50 to-transparent" />}
-      <div className="flex flex-wrap items-start justify-between gap-2">
+
+      <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           {primary && (
-            <p className="mb-0.5 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-primary">
-              <Sparkles className="h-3 w-3" aria-hidden /> Best match for you
-            </p>
+            <span className="mb-1 inline-flex items-center rounded-full bg-primary/15 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
+              <Sparkles className="mr-1 h-3 w-3" aria-hidden /> Best match for you
+            </span>
           )}
-          <p className="text-sm font-semibold leading-snug">{c.name}</p>
+          <p className="text-base font-bold leading-snug">{c.name}</p>
           {primary && c.description && <p className="mt-0.5 text-xs text-muted-foreground">{c.description}</p>}
         </div>
         <div className="shrink-0 text-right">
@@ -310,24 +332,37 @@ function CandidateView({
         </div>
       </div>
 
-      <ul className="mt-2 flex flex-wrap gap-1.5">
-        {c.items.map((i) => (
-          <li
-            key={`${i.foodId}-${i.name}`}
-            className="rounded-full bg-muted/70 px-2.5 py-0.5 text-xs transition-colors hover:bg-primary/10"
-            title={i.perReference ? `${i.name} — nutrition computed per ${i.perReference} (database reference serving)` : i.name}
-          >
-            {i.name} <span className="text-muted-foreground">· {i.quantity} {i.unit}</span>
-          </li>
-        ))}
-      </ul>
+      {/* photo + item list */}
+      <div className="mt-2.5 flex items-start gap-3">
+        <img
+          src={img}
+          alt=""
+          aria-hidden
+          className="h-20 w-20 shrink-0 rounded-xl border object-cover shadow-sm sm:h-24 sm:w-24"
+        />
+        <ul className="min-w-0 flex-1 space-y-1">
+          {c.items.map((i) => (
+            <li key={`${i.foodId}-${i.name}`} className="truncate text-xs" title={i.perReference ? `${i.name} — nutrition computed per ${i.perReference} (database reference serving)` : i.name}>
+              <span className="font-medium">{i.name}</span> <span className="text-muted-foreground">· {i.quantity} {i.unit}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
 
-      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-        <span><strong className="text-foreground">{formatKcal(c.nutrition.calories)}</strong></span>
-        <span>protein {formatGrams(c.nutrition.protein)}</span>
-        <span>carbs {formatGrams(c.nutrition.carbohydrates)}</span>
-        <span>fat {formatGrams(c.nutrition.fat)}</span>
-        <span>fiber {formatGrams(c.nutrition.fiber)}</span>
+      {/* macro pills */}
+      <div className="mt-2.5 grid grid-cols-3 gap-1.5 sm:grid-cols-5">
+        {pills.map((p) => (
+          <div
+            key={p.sub}
+            className={cn(
+              "rounded-lg border bg-background/80 px-1.5 py-1.5 text-center",
+              p.strong && "border-primary/30 bg-primary/5",
+            )}
+          >
+            <p className={cn("truncate text-xs font-bold tabular-nums", p.strong && "text-primary")}>{p.label}</p>
+            <p className="text-[9px] font-medium uppercase tracking-wide text-muted-foreground">{p.sub}</p>
+          </div>
+        ))}
       </div>
 
       {c.violations.length > 0 && (
@@ -345,10 +380,32 @@ function CandidateView({
         </p>
       )}
 
-      <Button size="sm" className="mt-2.5 w-full transition-all active:scale-[0.98]" onClick={onLog} disabled={logging || logged}>
-        {logged ? "Logged ✓" : logging ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" aria-hidden /> : null}
-        {logged ? "Added to today" : "Log this meal"}
-      </Button>
+      <div className="mt-2.5 flex items-center gap-2">
+        {explanation && (
+          <Collapsible>
+            <CollapsibleTrigger className="group inline-flex items-center gap-1 rounded-full border border-primary/30 bg-background/70 px-2.5 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/10">
+              <HeartHandshake className="h-3.5 w-3.5" aria-hidden /> Why this meal?
+              <ChevronDown className="h-3.5 w-3.5 transition-transform group-data-[state=open]:rotate-180" aria-hidden />
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <p className="mt-2 flex items-start gap-2 rounded-lg border border-primary/20 bg-primary/5 p-2.5 text-xs leading-relaxed text-foreground/90">
+                <BrainCircuit className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden />
+                <span>{explanation}</span>
+              </p>
+            </CollapsibleContent>
+          </Collapsible>
+        )}
+        <Button
+          size="sm"
+          className="ml-auto w-auto shrink-0 gap-2 transition-all active:scale-[0.98]"
+          onClick={onLog}
+          disabled={logging || logged}
+        >
+          {logged ? "Logged ✓" : logging ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : null}
+          {logged ? "Added to today" : "Log this meal"}
+          {!logged && !logging && <ArrowRight className="h-3.5 w-3.5" aria-hidden />}
+        </Button>
+      </div>
     </div>
   );
 }

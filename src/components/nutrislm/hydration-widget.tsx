@@ -4,7 +4,7 @@
  * Daily hydration tracker — persisted per user per local day (1 glass ≈ 250 ml).
  */
 import { useCallback, useEffect, useState } from "react";
-import { Droplets, Minus, Plus } from "lucide-react";
+import { Droplets, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -52,11 +52,11 @@ export function HydrationWidget() {
   const done = glasses >= goal;
 
   return (
-    <Card className="transition-shadow duration-300 hover:shadow-md hover:shadow-teal-500/10">
+    <Card className="border-primary/15 shadow-sm transition-shadow duration-300 hover:shadow-md hover:shadow-teal-500/10">
       <CardHeader className="pb-2">
         <CardTitle className="flex items-center gap-2 text-base">
-          <Droplets className="h-5 w-5 text-teal-600" aria-hidden />
-          Water today
+          <Droplets className="h-5 w-5 text-sky-600 dark:text-sky-400" aria-hidden />
+          Water Intake
         </CardTitle>
         <CardDescription>1 glass ≈ 250 ml · goal {goal} glasses</CardDescription>
       </CardHeader>
@@ -70,35 +70,54 @@ export function HydrationWidget() {
         )}
         {data && (
           <>
-            <div className="flex items-center justify-between gap-2" aria-live="polite">
+            <div className="flex items-end justify-between gap-2" aria-live="polite">
+              {/* glass-shaped markers */}
               <div className="flex flex-wrap gap-1" role="img" aria-label={`${glasses} of ${goal} glasses`}>
-                {Array.from({ length: goal }).map((_, i) => (
-                  <span
-                    key={i}
-                    className={cn(
-                      "h-6 w-2.5 rounded-full border transition-all duration-300",
-                      i < glasses ? "border-teal-500 bg-teal-500/80" : "bg-muted",
-                      i === glasses - 1 && i < glasses && "scale-y-110"
-                    )}
-                  />
-                ))}
+                {Array.from({ length: goal }).map((_, i) => {
+                  const filled = i < glasses;
+                  return (
+                    <span
+                      key={i}
+                      aria-hidden
+                      className={cn(
+                        "relative h-6 w-3.5 overflow-hidden rounded-b-md rounded-t-sm border transition-all duration-300",
+                        filled ? "border-sky-500/70" : "border-border",
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          "absolute inset-x-0 bottom-0 transition-all duration-500",
+                          filled ? "bg-gradient-to-t from-sky-500 to-sky-300" : "bg-transparent",
+                        )}
+                        style={{ height: filled ? "88%" : "0%" }}
+                      />
+                      {/* glass rim highlight */}
+                      <span aria-hidden className="absolute inset-x-0 top-0 h-[3px] bg-background/60" />
+                    </span>
+                  );
+                })}
               </div>
-              <div className="text-right">
-                <span className={cn("text-2xl font-bold tabular-nums", done ? "text-teal-600" : "text-foreground")}>{glasses}</span>
+              <div className="shrink-0 text-right">
+                <span className={cn("text-2xl font-extrabold tabular-nums", done ? "text-sky-600 dark:text-sky-400" : "text-foreground")}>
+                  {glasses}
+                </span>
                 <span className="text-sm text-muted-foreground">/{goal}</span>
-                <p className="text-[10px] text-muted-foreground tabular-nums">{data.ml} ml · {percent}%</p>
+                <p className="text-[10px] tabular-nums text-muted-foreground">
+                  {data.ml.toLocaleString()} ml ({percent}%)
+                </p>
               </div>
             </div>
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm" className="flex-1" onClick={() => update(-1)} disabled={busy || glasses === 0} aria-label="Remove a glass of water">
-                <Minus className="h-4 w-4" aria-hidden />
-              </Button>
-              <Button size="sm" className="flex-[2] bg-teal-600 hover:bg-teal-700 text-white" onClick={() => update(1)} disabled={busy} aria-label="Add a glass of water">
-                <Plus className="mr-1 h-4 w-4" aria-hidden /> Add a glass
-              </Button>
-            </div>
+            <Button
+              variant="outline"
+              className="w-full gap-1.5 border-sky-500/40 bg-sky-500/5 text-sky-700 transition-all hover:bg-sky-500/15 active:scale-[0.98] dark:text-sky-400"
+              onClick={() => update(1)}
+              disabled={busy}
+              aria-label="Add a glass of water"
+            >
+              <Plus className="h-4 w-4" aria-hidden /> Add a Glass
+            </Button>
             {done && (
-              <p className="rounded-lg border border-teal-500/30 bg-teal-500/10 px-3 py-1.5 text-center text-xs font-medium text-teal-700 dark:text-teal-400">
+              <p className="rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 py-1.5 text-center text-xs font-medium text-sky-700 dark:text-sky-400">
                 💧 Goal reached — nicely hydrated!
               </p>
             )}

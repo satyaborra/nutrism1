@@ -93,9 +93,23 @@ function fromProfile(p: ProfileResponse): FormState {
   };
 }
 
-export function ProfileDialog({ onSaved }: { onSaved: () => void }) {
+export function ProfileDialog({
+  onSaved,
+  open: controlledOpen,
+  onOpenChange,
+}: {
+  onSaved: () => void;
+  /** Optional controlled open state (used by the Health Profile view). */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+}) {
   const { toast } = useToast();
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = controlledOpen ?? internalOpen;
+  const setOpen = (o: boolean) => {
+    setInternalOpen(o);
+    onOpenChange?.(o);
+  };
   const [loaded, setLoaded] = useState<ProfileResponse | null>(null);
   const [form, setForm] = useState<FormState | null>(null);
   const [loading, setLoading] = useState(false);
@@ -178,11 +192,13 @@ export function ProfileDialog({ onSaved }: { onSaved: () => void }) {
         if (!o) return;
       }}
     >
-      <DialogTrigger asChild>
-        <Button variant="outline" size="sm">
-          <Settings2 className="mr-1.5 h-4 w-4" aria-hidden /> My health profile
-        </Button>
-      </DialogTrigger>
+      {controlledOpen === undefined && (
+        <DialogTrigger asChild>
+          <Button variant="outline" size="sm">
+            <Settings2 className="mr-1.5 h-4 w-4" aria-hidden /> My health profile
+          </Button>
+        </DialogTrigger>
+      )}
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Your health profile</DialogTitle>

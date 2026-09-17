@@ -17,6 +17,7 @@ import {
   ChevronLeft,
   Languages,
   Loader2,
+  Mic,
   Plus,
   Search,
   Sparkles,
@@ -58,6 +59,28 @@ const EXAMPLES = [
 ];
 
 const COMMON_UNITS = ["piece", "pieces", "cup", "bowl", "glass", "katori", "tbsp", "tsp", "g", "ml", "serving"];
+
+/* ---- Minimal Web Speech API typings (browser voice input, no backend) ---- */
+interface SpeechRecognitionEventLike {
+  results: ArrayLike<ArrayLike<{ transcript: string }>>;
+}
+interface SpeechRecognitionLike {
+  lang: string;
+  interimResults: boolean;
+  continuous: boolean;
+  start(): void;
+  stop(): void;
+  onresult: ((e: SpeechRecognitionEventLike) => void) | null;
+  onerror: ((e: { error?: string }) => void) | null;
+  onend: (() => void) | null;
+}
+type SpeechRecognitionCtor = new () => SpeechRecognitionLike;
+
+function getSpeechRecognition(): SpeechRecognitionCtor | null {
+  if (typeof window === "undefined") return null;
+  const w = window as unknown as { SpeechRecognition?: SpeechRecognitionCtor; webkitSpeechRecognition?: SpeechRecognitionCtor };
+  return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
+}
 
 /** Default clock time per meal slot for backfilled days (local time). */
 const SLOT_DEFAULT_TIME: Record<string, string> = {
@@ -131,6 +154,8 @@ export function FoodLogger({ onLogged }: { onLogged: () => void }) {
   const { toast } = useToast();
   const backfillRequest = useNutriStore((s) => s.backfillRequest);
   const clearBackfill = useNutriStore((s) => s.clearBackfill);
+  const loggerRequest = useNutriStore((s) => s.loggerRequest);
+  const clearLoggerRequest = useNutriStore((s) => s.clearLoggerRequest);
 
   const [step, setStep] = useState<Step>("input");
   const [tab, setTab] = useState("text");
@@ -152,6 +177,8 @@ export function FoodLogger({ onLogged }: { onLogged: () => void }) {
   const [confirmError, setConfirmError] = useState<string | null>(null);
   const [logging, setLogging] = useState(false);
   const [loggedResult, setLoggedResult] = useState<LoggedSummary | null>(null);
+  const [voiceListening, setVoiceListening] = useState(false);
+  const voiceRef = useRef<SpeechRecognitionLike | null>(null);
 
   function resetAll() {
     setStep("input");
@@ -176,6 +203,74 @@ export function FoodLogger({ onLogged }: { onLogged: () => void }) {
     clearBackfill();
     toast({ title: `Logging for ${prettyDate(backfillRequest.date)}`, description: "The meal you log now lands in that day's history." });
   }, [backfillRequest, clearBackfill, toast]);
+
+  /** Quick Actions / hero can open the logger in text/photo (or voice) mode. */
+  useEffect(() => {
+    if (!loggerRequest) return;
+    setStep("input");
+    setTab(loggerRequest.tab);
+    if (loggerRequest.openFile) {
+      // wait a tick so the photo tab content (and its file input) exists
+      requestAnimationFrame(() => fileInputRef.current?.click());
+    }
+    if (loggerRequest.voice) {
+      requestAnimationFrame(() => startVoiceInput());
+    }
+    clearLoggerRequest();
+  }, [loggerRequest, clearLoggerRequest]);
+
+  /** Voice input via the browser Web Speech API — transcript lands in the
+   *  describe textarea; the AI pipeline handles the rest. */
+  function startVoiceInput() {
+    const Ctor = getSpeechRecognition();
+    if (!Ctor) {
+      toast({
+        title: "Voice input not available",
+        description: "Your browser doesn't support speech recognition — try Chrome, or type the meal instead.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (voiceRef.current) {
+      voiceRef.current.stop();
+      voiceRef.current = null;
+      setVoiceListening(false);
+      return;
+    }
+    try {
+      const rec = new Ctor();
+      rec.lang = "en-IN";
+      rec.interimResults = false;
+      rec.continuous = false;
+      rec.onresult = (e) => {
+        const transcript = Array.from({ length: e.results.length }, (_, i) => e.results[i][0]?.transcript ?? "")
+          .join(" ")
+          .trim();
+        if (transcript) {
+          setText((prev) => (prev ? `${prev} ${transcript}` : transcript));
+          setTab("text");
+          toast({ title: "Heard you", description: `“${transcript}” — check the text, then Analyze.` });
+        }
+      };
+      rec.onerror = (e) => {
+        toast({ title: "Could not listen", description: e.error === "not-allowed" ? "Microphone permission was denied." : "Try again in a quieter moment.", variant: "destructive" });
+        setVoiceListening(false);
+        voiceRef.current = null;
+      };
+      rec.onend = () => {
+        setVoiceListening(false);
+        voiceRef.current = null;
+      };
+      voiceRef.current = rec;
+      setVoiceListening(true);
+      rec.start();
+      toast({ title: "Listening…", description: "Speak your meal — e.g. “two idli and one cup sambar”." });
+    } catch {
+      setVoiceListening(false);
+      voiceRef.current = null;
+      toast({ title: "Could not start the microphone", description: "Please allow microphone access and try again.", variant: "destructive" });
+    }
+  }
 
   async function handleAnalyze() {
     setAnalyzing(true);
@@ -423,6 +518,19 @@ export function FoodLogger({ onLogged }: { onLogged: () => void }) {
               </TabsList>
 
               <TabsContent value="text" className="mt-3 space-y-3">
+                {voiceListening && (
+                  <p
+                    className="flex items-center gap-2 rounded-md border border-rose-500/40 bg-rose-500/10 px-2.5 py-1.5 text-xs font-medium text-rose-700 dark:text-rose-400"
+                    role="status"
+                    aria-live="polite"
+                  >
+                    <span className="relative flex h-2.5 w-2.5" aria-hidden>
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-500 opacity-75" />
+                      <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-rose-500" />
+                    </span>
+                    Listening… speak your meal, e.g. &ldquo;two idli and one cup sambar&rdquo;.
+                  </p>
+                )}
                 <Textarea
                   aria-label="Food description"
                   placeholder={'e.g. "2 idli and one cup sambar" · "rendu dosa, oru chaya" · "2 roti aur dal"'}
@@ -431,7 +539,7 @@ export function FoodLogger({ onLogged }: { onLogged: () => void }) {
                   maxLength={2000}
                   onChange={(e) => setText(e.target.value)}
                 />
-                <div className="flex flex-wrap gap-1.5">
+                <div className="flex flex-wrap items-center gap-1.5">
                   {EXAMPLES.map((ex) => (
                     <button
                       key={ex}
@@ -442,6 +550,22 @@ export function FoodLogger({ onLogged }: { onLogged: () => void }) {
                       {ex}
                     </button>
                   ))}
+                  <button
+                    type="button"
+                    onClick={startVoiceInput}
+                    aria-pressed={voiceListening}
+                    aria-label={voiceListening ? "Stop voice input" : "Start voice input"}
+                    title={voiceListening ? "Stop voice input" : "Speak your meal"}
+                    className={cn(
+                      "ml-auto inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-all active:scale-95",
+                      voiceListening
+                        ? "border-rose-500/50 bg-rose-500/15 text-rose-700 dark:text-rose-400"
+                        : "bg-background text-muted-foreground hover:border-rose-400/50 hover:bg-rose-500/10 hover:text-rose-700 dark:hover:text-rose-400",
+                    )}
+                  >
+                    <Mic className={cn("h-3.5 w-3.5", voiceListening && "animate-pulse")} aria-hidden />
+                    {voiceListening ? "Stop" : "Voice"}
+                  </button>
                 </div>
               </TabsContent>
 

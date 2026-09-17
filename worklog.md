@@ -278,3 +278,33 @@ Stage Summary:
 - Demo data after round: 12 meals (10 today, 2 idli on Sept 16 130 kcal, banana on Sept 14 44 kcal), water 8/8 today, milestones 7/12 (Hydration hero + Notes keeper newly unlocked), streak 2, notes 4, favorite unchanged.
 - Known minor: first interaction after code edits can hit a stale HMR chunk (backfill bridge test failed once, passed after reload — same class as r8/r9 notes); backfilled meals use slot-default times (no custom time picker yet); "one banana" resolved to unit "piece" -> 44 kcal via the conservative unit converter (pre-existing perception nuance, numbers still DB-derived); journal export is client-side from loaded data (30-day window, max 40 notes).
 - Next-round suggestions: (1) custom time picker for backfilled meals (slot default is a shortcut), (2) calendar day detail -> "edit/backfill water for that day" (hydration only tracks today), (3) localize UI strings via profile.language (carried r9/r10 — mood chips, backfill banners are new English-only surfaces), (4) food-similarity feedback generalization (carried r5/r9), (5) offline shell service worker (carried), (6) "week in review" email-style digest auto-generation on Mondays.
+
+---
+Task ID: F1
+Agent: image-asset-subagent
+Task: Generate 9 food/lifestyle images for the NutriSLM dashboard redesign
+
+Work Log:
+- Skimmed worklog.md (latest rounds r8-r11: dashboard stable, upcoming visual redesign with sidebar + illustrated home page needs food/lifestyle assets)
+- Created /home/z/my-project/public/images/ (new directory; public/ previously only had icons, logo, manifest)
+- Verified z-ai CLI image subcommand + its size whitelist (1024x1024, 768x1344, 864x1152, 1344x768, 1152x864, 1440x720, 720x1440)
+- Generated the 7 square images (1024x1024) sequentially via `z-ai image -p "<prompt>" -o "<path>" -s 1024x1024`: hero-bowl, dish-dosa, meal-idli, meal-banana, meal-rice-dal, meal-buttermilk, meal-generic — all first-try successes
+- banner-vegetables @1440x720 attempt 1 FAILED: API 400 error 1214 ("width/height must be 512-2880px AND multiples of 32") — 720 is not a multiple of 32; the CLI help lists 1440x720 but the backend rejects it
+- banner-vegetables attempt 2 @1440x768 FAILED (CLI whitelist rejects non-listed sizes); attempt 3 @1344x768 SUCCESS
+- hero-leaves generated directly at 1344x768 SUCCESS (same workaround)
+- Post-processed both banners with sharp (already in project deps, 0.34.5) resize 1440x720 fit:cover centre to deliver the EXACT requested 1440x720 (mild ~7% upscale + center crop, no distortion)
+- Verified all 9 files with ls -la + sharp metadata: correct dimensions, all >10KB
+- No source code modified — only image assets under public/images/
+
+Stage Summary:
+- 9/9 images SUCCEEDED, 0 failures after retries. /home/z/my-project/public/images/:
+  - hero-bowl.png 1024x1024 183.1KB (grain bowl, sage bg)
+  - dish-dosa.png 1024x1024 185.9KB (dosa + sambar)
+  - meal-idli.png 1024x1024 143.6KB (idli breakfast)
+  - meal-banana.png 1024x1024 46.5KB (bananas)
+  - meal-rice-dal.png 1024x1024 110.3KB (rice + dal + sabzi)
+  - meal-buttermilk.png 1024x1024 84.3KB (chaas glass)
+  - meal-generic.png 1024x1024 176.7KB (veg thali)
+  - banner-vegetables.png 1440x720 1935.1KB (veg flat-lay, right-side subject + left copy space; generated 1344x768 -> sharp cover-crop to 1440x720)
+  - hero-leaves.png 1440x720 1445.7KB (watercolor foliage border, center/right copy space; generated 1344x768 -> sharp cover-crop to 1440x720)
+- Caveats for consumers: (1) 1440x720 is unusable with the z-ai image API despite the CLI help text — use 1344x768/1152x864 and sharp-crop for exact 2:1; (2) the seven 1024x1024 CLI outputs are JPEG payloads with .png extension (browsers/Next static serving handle this fine via content sniffing); the two banners are true PNGs (re-encoded by sharp)

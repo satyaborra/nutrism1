@@ -1,13 +1,14 @@
 "use client";
 
 /**
- * NutriSLM root: bootstraps the session, then renders auth or the dashboard.
+ * NutriSLM root: bootstraps the session, then renders auth (bare shell) or the
+ * sidebar dashboard shell with the active view.
  */
 import { useEffect } from "react";
-import { Loader2, Salad } from "lucide-react";
+import { Loader2, Sprout } from "lucide-react";
 import { api } from "@/lib/client/api";
 import { useNutriStore } from "./store";
-import { AppShell } from "./app-shell";
+import { AppShell, BareShell } from "./app-shell";
 import { AuthView } from "./auth-view";
 import { Dashboard } from "./dashboard";
 
@@ -32,21 +33,31 @@ export function NutriSLMApp() {
     };
   }, [setSession, clearSession]);
 
-  return (
-    <AppShell>
-      {!bootstrapped ? (
+  if (!bootstrapped) {
+    return (
+      <BareShell>
         <div className="flex min-h-[60vh] flex-col items-center justify-center gap-3" aria-busy="true">
-          <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
-            <Salad className="h-6 w-6" aria-hidden />
+          <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-600 text-white shadow-md shadow-emerald-600/20">
+            <Sprout className="h-6 w-6" aria-hidden />
           </span>
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" aria-hidden />
           <p className="sr-only">Loading NutriSLM…</p>
         </div>
-      ) : user ? (
-        <Dashboard />
-      ) : (
+      </BareShell>
+    );
+  }
+
+  if (!user) {
+    return (
+      <BareShell>
         <AuthView />
-      )}
+      </BareShell>
+    );
+  }
+
+  return (
+    <AppShell>
+      <Dashboard />
     </AppShell>
   );
 }

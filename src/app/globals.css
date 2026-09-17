@@ -185,3 +185,23 @@
     animation-iteration-count: 1 !important;
   }
 }
+
+/* Hero greeting wave — one gentle wave on load. */
+@keyframes wave {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  20% {
+    transform: rotate(16deg);
+  }
+  40% {
+    transform: rotate(-8deg);
+  }
+  60% {
+    transform: rotate(12deg);
+  }
+  80% {
+    transform: rotate(-4deg);
+  }
+}
