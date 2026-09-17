@@ -61,6 +61,7 @@ function monthOf(dateKey: string): string {
 export function ActivityCalendar() {
   const dataVersion = useNutriStore((s) => s.dataVersion);
   const requestBackfill = useNutriStore((s) => s.requestBackfill);
+  const setView = useNutriStore((s) => s.setView);
   const [data, setData] = useState<ActivityCalendarResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [weeks, setWeeks] = useState<number>(12);
@@ -283,8 +284,13 @@ export function ActivityCalendar() {
                 <button
                   type="button"
                   onClick={() => {
+                    // The logger lives on the Log Meal view — navigate there,
+                    // then the logger consumes the backfill request on mount.
+                    setView("log");
                     requestBackfill(selectedDay.date);
-                    document.getElementById("log-food")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                    requestAnimationFrame(() =>
+                      document.getElementById("log-food")?.scrollIntoView({ behavior: "smooth", block: "start" }),
+                    );
                   }}
                   className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-md border border-primary/40 bg-primary/5 px-3 py-2 text-xs font-medium text-primary transition-all hover:bg-primary/10 active:scale-[0.98]"
                 >

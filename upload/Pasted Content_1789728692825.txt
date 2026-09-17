@@ -1,0 +1,2244 @@
+You are the Principal AI Engineer, Full-Stack Engineer, Product Architect, UX Designer, and Startup CTO for NutriSLM.
+
+I want to add a production-quality AI Nutrition Coach Assistant to my existing NutriSLM application.
+
+DO NOT build a generic chatbot.
+
+Build a CONTEXT-AWARE PERSONAL NUTRITION COACH that understands the user's complete nutrition day and can answer questions, summarize meals, identify nutrition gaps, and recommend what the user should eat next.
+
+The AI Coach must use the existing NutriSLM architecture rather than creating a separate nutrition system.
+
+========================================================
+PRODUCT VISION
+========================================================
+
+NutriSLM AI Coach:
+
+"Your personal nutrition intelligence layer."
+
+The coach should understand:
+
+• what the user ate today
+• what the user ate in previous days
+• calories consumed
+• calories remaining
+• protein consumed/remaining
+• carbohydrates consumed/remaining
+• fat consumed/remaining
+• fiber consumed/remaining
+• sugar
+• sodium
+• potassium
+• phosphorus
+• cholesterol
+• saturated fat
+• water intake
+• meal timing
+• breakfast
+• lunch
+• snacks
+• dinner
+• health conditions
+• allergies
+• dietary preferences
+• cuisine preferences
+• nutrition goals
+• current meal slot
+• previous recommendations
+• RAG evidence
+
+The user should be able to talk to the Coach naturally.
+
+========================================================
+CORE USER EXPERIENCE
+========================================================
+
+The user opens:
+
+AI COACH
+
+The screen should immediately show:
+
+"Good afternoon, Jaswanth 👋"
+
+"Here's your nutrition day so far."
+
+Then provide a visual summary:
+
+TODAY
+
+Calories
+1,245 / 2,573 kcal
+
+Protein
+48 / 68 g
+
+Carbohydrates
+152 / 289 g
+
+Fat
+42 / 86 g
+
+Fiber
+19 / 36 g
+
+Water
+5 / 8 glasses
+
+Then:
+
+MEALS TODAY
+
+Breakfast
+2 Idli + Sambar
+246 kcal
+
+Lunch
+Rice + Dal + Vegetables
+628 kcal
+
+Snack
+Apple + Almonds
+164 kcal
+
+Dinner
+Not logged yet
+
+Then:
+
+YOUR NEXT FOCUS
+
+"Your protein and fiber intake still have room to increase today. A balanced dinner containing a protein source, vegetables and a suitable carbohydrate portion could fit your remaining nutrition."
+
+Then:
+
+NEXT MEAL
+
+Personalized recommendation.
+
+Then:
+
+ASK YOUR COACH
+
+"What should I eat for dinner?"
+
+========================================================
+IMPORTANT ARCHITECTURAL PRINCIPLE
+========================================================
+
+The AI Coach MUST NOT independently calculate nutrition.
+
+The Coach receives verified nutrition context from the backend.
+
+Architecture:
+
+                    AI COACH
+                       |
+                       ↓
+              CONTEXT BUILDER
+                       |
+       +---------------+----------------+
+       |               |                |
+       ↓               ↓                ↓
+   TODAY'S MEALS   HEALTH PROFILE   NUTRITION STATE
+       |               |                |
+       +---------------+----------------+
+                       ↓
+                  RAG EVIDENCE
+                       ↓
+              DISEASE CONSTRAINTS
+                       ↓
+                 MISTRAL / SLM
+                       ↓
+                   VALIDATOR
+                       ↓
+                 COACH RESPONSE
+
+The model reasons over verified context.
+
+It does NOT become the source of truth.
+
+========================================================
+1. COACH CONTEXT ENGINE
+========================================================
+
+Create a dedicated service:
+
+backend/services/coach_context_builder.py
+
+or adapt the existing backend architecture.
+
+The context builder should gather:
+
+USER PROFILE
+
+age
+sex
+height
+weight
+activity level
+goal
+
+HEALTH
+
+T2DM
+CKD
+CVD
+other configured conditions
+
+DIET
+
+vegetarian
+vegan
+non-vegetarian
+eggetarian
+cuisine
+allergies
+intolerances
+
+LANGUAGE
+
+preferred language
+
+TODAY
+
+date
+current time
+current meal slot
+
+MEALS
+
+breakfast
+lunch
+snacks
+dinner
+
+NUTRITION
+
+calories
+protein
+carbs
+fat
+fiber
+sugar
+sodium
+potassium
+phosphorus
+cholesterol
+saturated fat
+
+HYDRATION
+
+water consumed
+water target
+
+GOALS
+
+daily calorie target
+macro targets
+fiber target
+hydration target
+
+HISTORY
+
+recent meals
+recent recommendations
+meal patterns
+streaks
+
+RAG
+
+relevant evidence
+
+CONSTRAINTS
+
+allergies
+diet restrictions
+disease-related constraints
+
+========================================================
+2. CONTEXT OBJECT
+========================================================
+
+Create a structured internal object.
+
+Example:
+
+{
+  "date": "2026-09-18",
+  "current_time": "14:30",
+  "meal_slot": "Lunch",
+
+  "profile": {
+    "age": 24,
+    "sex": "male",
+    "height_cm": 172,
+    "weight_kg": 75,
+    "activity": "moderate",
+    "goal": "maintain"
+  },
+
+  "health_conditions": [
+    "T2DM"
+  ],
+
+  "diet": {
+    "type": "vegetarian",
+    "cuisine": "Indian",
+    "allergies": []
+  },
+
+  "nutrition": {
+    "calories": {
+      "consumed": 874,
+      "target": 2573,
+      "remaining": 1699
+    },
+    "protein": {
+      "consumed": 34,
+      "target": 68,
+      "remaining": 34
+    },
+    "carbohydrates": {
+      "consumed": 108,
+      "target": 289,
+      "remaining": 181
+    },
+    "fat": {
+      "consumed": 29,
+      "target": 86,
+      "remaining": 57
+    },
+    "fiber": {
+      "consumed": 12,
+      "target": 36,
+      "remaining": 24
+    }
+  },
+
+  "meals": [
+    {
+      "meal_type": "Breakfast",
+      "foods": [
+        "Idli",
+        "Sambar"
+      ],
+      "calories": 246,
+      "protein": 10
+    }
+  ],
+
+  "water": {
+    "glasses": 4,
+    "target": 8
+  }
+}
+
+Do not expose unnecessary internal fields to the user.
+
+========================================================
+3. DAILY DIET VIEW
+========================================================
+
+The Coach must be able to answer:
+
+"What did I eat today?"
+
+Return:
+
+TODAY'S FOOD
+
+Breakfast
+2 Idli + Sambar
+
+Lunch
+Rice + Dal + Vegetables
+
+Snack
+Apple + Almonds
+
+Dinner
+Not logged
+
+Then:
+
+TOTAL
+
+Calories
+...
+
+Protein
+...
+
+Carbs
+...
+
+Fat
+...
+
+Fiber
+...
+
+Water
+...
+
+All values MUST come from the verified backend.
+
+========================================================
+4. FULL DAY DIET PLAN
+========================================================
+
+The user can ask:
+
+"Give me my complete diet plan for today."
+
+The Coach should produce:
+
+BREAKFAST
+what was eaten / recommended
+
+MID-MORNING
+if appropriate
+
+LUNCH
+what was eaten / recommended
+
+EVENING SNACK
+recommendation
+
+DINNER
+recommendation
+
+OPTIONAL
+
+Before-bed snack if appropriate.
+
+The plan must respect:
+
+• calories remaining
+• macro state
+• fiber
+• sodium
+• potassium
+• phosphorus
+• health conditions
+• allergies
+• diet
+• preferences
+• meal history
+
+Do not recommend meals that violate hard constraints.
+
+========================================================
+5. "WHAT SHOULD I EAT NEXT?"
+========================================================
+
+User:
+
+"What should I eat next?"
+
+Flow:
+
+current time
+↓
+current meal slot
+↓
+today's meals
+↓
+remaining nutrition
+↓
+health conditions
+↓
+diet
+↓
+allergies
+↓
+RAG
+↓
+candidate generation
+↓
+deterministic candidate nutrition
+↓
+constraint filtering
+↓
+Mistral ranking
+↓
+validator
+↓
+recommendation
+
+Return:
+
+MEAL
+
+Vegetable Dal + 2 Roti + Salad
+
+ESTIMATED NUTRITION
+
+Calories
+...
+
+Protein
+...
+
+Carbs
+...
+
+Fat
+...
+
+Fiber
+...
+
+WHY?
+
+Explain using the actual user's context.
+
+========================================================
+6. "WHY DID YOU RECOMMEND THIS?"
+========================================================
+
+The user can ask:
+
+"Why this meal?"
+
+The Coach should explain:
+
+• remaining nutrition
+• meal balance
+• preferences
+• health context
+• evidence
+
+Example:
+
+"You still have approximately 24 g of protein and 24 g of fiber remaining today. This meal provides a useful amount of both while fitting your vegetarian preference. Because your profile includes T2DM, the recommendation also considers carbohydrate composition and fiber."
+
+Do not make unsupported clinical claims.
+
+========================================================
+7. "HOW DID I DO TODAY?"
+========================================================
+
+User:
+
+"How did I do today?"
+
+Return a concise summary:
+
+TODAY'S PROGRESS
+
+Calories
+72% of target
+
+Protein
+68%
+
+Fiber
+53%
+
+Water
+63%
+
+Then:
+
+WHAT WENT WELL
+
+...
+
+WHAT TO FOCUS ON
+
+...
+
+NEXT STEP
+
+...
+
+Do not shame the user.
+
+Do not use judgmental language.
+
+========================================================
+8. NUTRITION GAP DETECTION
+========================================================
+
+The Coach should detect gaps from verified data.
+
+Examples:
+
+Protein remaining
+
+Fiber remaining
+
+Hydration remaining
+
+Calories remaining
+
+Potentially high sodium
+
+Potentially high saturated fat
+
+etc.
+
+Do not call something deficient unless the configured target/reference supports that interpretation.
+
+Use:
+
+"remaining"
+
+"below your configured target"
+
+"higher than your configured target"
+
+rather than unsupported medical claims.
+
+========================================================
+9. MEAL BALANCE
+========================================================
+
+The Coach should understand the day's meal pattern.
+
+Example:
+
+Breakfast:
+high carbohydrate
+
+Lunch:
+moderate protein
+
+Snack:
+low protein
+
+Then:
+
+"Your logged meals today have been relatively carbohydrate-heavy and provide less protein than your configured target so far. A protein-containing dinner may help you move toward today's target."
+
+This reasoning must use actual data.
+
+========================================================
+10. MEAL HISTORY
+========================================================
+
+The Coach should be able to answer:
+
+"What did I eat yesterday?"
+
+"What do I usually eat for breakfast?"
+
+"What meals have I logged this week?"
+
+"How often do I eat dosa?"
+
+"What was my most recent dinner?"
+
+Use persisted meal history.
+
+Do not invent history.
+
+If no data exists:
+
+"I don't have enough logged meals to answer that yet."
+
+========================================================
+11. TREND QUESTIONS
+========================================================
+
+Support:
+
+"How have my meals been this week?"
+
+"Am I getting enough fiber compared with my target?"
+
+"How consistent have I been?"
+
+"What's my average calorie intake?"
+
+"Which meals do I repeat most?"
+
+Use actual database aggregation.
+
+The model should summarize results rather than calculate them from raw untrusted text.
+
+========================================================
+12. WATER COACH
+========================================================
+
+User:
+
+"How much water should I drink today?"
+
+Return the user's configured hydration target if available.
+
+Example:
+
+"You've logged 5 of your 8 glasses today, so you have 3 glasses remaining."
+
+Do not invent personalized medical hydration prescriptions.
+
+========================================================
+13. DISEASE-AWARE COACH
+========================================================
+
+The Coach must understand health conditions configured in the user's profile.
+
+Supported:
+
+T2DM
+CKD
+CVD
+
+For T2DM:
+
+consider carbohydrate distribution
+fiber
+added sugar
+meal composition
+portion context
+
+For CKD:
+
+consider sodium
+potassium
+phosphorus
+protein
+
+For CVD:
+
+consider sodium
+saturated fat
+trans fat
+cholesterol
+overall dietary pattern
+
+IMPORTANT:
+
+Do not diagnose.
+
+Do not prescribe treatment.
+
+Do not invent universal disease thresholds.
+
+Use retrieved evidence and configured constraints.
+
+========================================================
+14. RAG EVIDENCE
+========================================================
+
+Use the existing NutriSLM RAG.
+
+Existing architecture:
+
+BGE embeddings
++
+FAISS
+
+Trusted sources may include:
+
+USDA
+IFCT
+WHO
+ICMR
+ADA
+KDIGO
+AHA
+
+When a Coach response depends on nutrition guidance:
+
+retrieve relevant evidence.
+
+Example:
+
+User:
+
+"Why are you recommending more fiber?"
+
+Coach:
+
+"Your current fiber intake is below your configured daily target. Nutrition guidance emphasizes fiber-rich foods as part of healthy dietary patterns."
+
+Then show:
+
+Evidence
+
+Source:
+ADA Standards of Care
+
+Do not fabricate citations.
+
+If evidence is unavailable:
+
+do not pretend that a source supports the statement.
+
+========================================================
+15. EVIDENCE UI
+========================================================
+
+Do not show raw RAG chunks.
+
+Instead create:
+
+Evidence
+
+ADA Standards of Care
+Fiber guidance
+
+View source
+
+The user can expand:
+
+"Why am I seeing this?"
+
+Then show concise evidence.
+
+========================================================
+16. CHAT INTERFACE
+========================================================
+
+Create a premium AI Coach chat UI.
+
+Header:
+
+AI Coach
+
+"Your personalized nutrition companion"
+
+Show contextual starter questions:
+
+"What did I eat today?"
+
+"What should I eat next?"
+
+"How am I doing today?"
+
+"Plan the rest of my day"
+
+"Why this recommendation?"
+
+"Show my nutrition gaps"
+
+"Review my week"
+
+The user can type naturally.
+
+========================================================
+17. CONTEXT-AWARE CHAT
+========================================================
+
+Every Coach question should automatically receive the latest context.
+
+Example:
+
+User logs breakfast.
+
+Then asks:
+
+"What should I eat next?"
+
+The Coach must see the newly logged breakfast.
+
+User logs lunch.
+
+Then asks the same question.
+
+The Coach must see:
+
+breakfast
++
+lunch
+
+and update its recommendation.
+
+Do not use stale context.
+
+========================================================
+18. CONTEXT REFRESH
+========================================================
+
+Whenever the user:
+
+logs a meal
+edits a meal
+deletes a meal
+changes health profile
+changes dietary preference
+changes allergies
+changes nutrition goal
+adds water
+
+invalidate Coach context cache.
+
+Rebuild context.
+
+This is mandatory.
+
+========================================================
+19. DAILY COACH SNAPSHOT
+========================================================
+
+Create a daily snapshot.
+
+Example:
+
+Coach Snapshot
+
+Date
+18 Sep 2026
+
+Meals logged
+3 / 4
+
+Calories
+1,245 / 2,573
+
+Protein
+48 / 68 g
+
+Fiber
+19 / 36 g
+
+Water
+5 / 8
+
+Next meal:
+Dinner
+
+Priority:
+Increase fiber + protein while respecting profile constraints.
+
+This snapshot can be shown on Home and Coach.
+
+========================================================
+20. FULL-DAY PLAN GENERATION
+========================================================
+
+Create:
+
+POST /api/coach/daily-plan
+
+Input:
+
+user context
+
+Output:
+
+{
+  "date": "...",
+  "summary": "...",
+  "meals": [
+    {
+      "meal_slot": "Breakfast",
+      "status": "logged",
+      "foods": []
+    },
+    {
+      "meal_slot": "Lunch",
+      "status": "logged",
+      "foods": []
+    },
+    {
+      "meal_slot": "Snack",
+      "status": "recommended",
+      "foods": []
+    },
+    {
+      "meal_slot": "Dinner",
+      "status": "recommended",
+      "foods": []
+    }
+  ],
+  "nutrition_summary": {},
+  "reasoning": "...",
+  "evidence": []
+}
+
+IMPORTANT:
+
+Do not overwrite logged meals.
+
+The Coach should distinguish:
+
+LOGGED
+
+from
+
+RECOMMENDED
+
+========================================================
+21. PLAN THE REST OF MY DAY
+========================================================
+
+This should be a dedicated feature.
+
+User taps:
+
+"Plan the rest of my day"
+
+The system identifies:
+
+completed meals
+
+remaining meal slots
+
+remaining nutrition
+
+then creates:
+
+SNACK
++
+DINNER
+
+or:
+
+LUNCH
++
+SNACK
++
+DINNER
+
+depending on the current time.
+
+Example:
+
+REMAINING TODAY
+
+1,120 kcal
+
+Protein:
+32 g
+
+Fiber:
+18 g
+
+The Coach might produce:
+
+4:30 PM — Snack
+
+Greek yogurt + fruit
+
+8:00 PM — Dinner
+
+Vegetable dal + roti + salad
+
+The actual candidate nutrition MUST be calculated by the backend.
+
+========================================================
+22. CANDIDATE MEAL ENGINE
+========================================================
+
+Do NOT ask Mistral to invent nutrition values.
+
+Generate candidates.
+
+For example:
+
+Candidate A:
+Dal + Roti + Salad
+
+Candidate B:
+Vegetable Khichdi + Curd
+
+Candidate C:
+Paneer + Vegetables + Roti
+
+Calculate each candidate deterministically.
+
+Then apply:
+
+1. allergies
+2. dietary restrictions
+3. disease constraints
+4. nutrition suitability
+5. personalization
+6. evidence
+
+Then ask Mistral to rank/reason.
+
+========================================================
+23. COACH RESPONSE SCHEMA
+========================================================
+
+Require structured output.
+
+Example:
+
+{
+  "intent": "plan_rest_of_day",
+
+  "summary": "...",
+
+  "daily_status": {
+    "calories_remaining": 1120,
+    "protein_remaining": 32,
+    "fiber_remaining": 18
+  },
+
+  "recommendations": [
+    {
+      "meal_slot": "Dinner",
+      "candidate_id": "meal_123",
+      "name": "Vegetable Dal + Roti + Salad",
+      "reason": "...",
+      "nutrition": {
+        "calories": 480,
+        "protein": 22,
+        "carbs": 62,
+        "fat": 12,
+        "fiber": 14
+      }
+    }
+  ],
+
+  "evidence": [],
+
+  "confidence": "moderate"
+}
+
+Nutrition values must come from deterministic calculation.
+
+========================================================
+24. INTENT DETECTION
+========================================================
+
+Support intents:
+
+today_summary
+
+meal_history
+
+next_meal
+
+plan_rest_of_day
+
+nutrition_gap
+
+nutrition_progress
+
+meal_explanation
+
+recommendation_explanation
+
+water_status
+
+weekly_review
+
+food_question
+
+meal_swap
+
+general_nutrition_question
+
+unknown
+
+Use structured intent classification.
+
+========================================================
+25. MEAL SWAPS
+========================================================
+
+User:
+
+"I don't want this dinner."
+
+Coach:
+
+"Sure. Here are alternatives that fit your current context."
+
+Candidate 1
+
+Candidate 2
+
+Candidate 3
+
+Apply the same:
+
+allergy
+diet
+disease
+nutrition
+preference
+
+filters.
+
+========================================================
+26. USER PREFERENCES
+========================================================
+
+The Coach should understand:
+
+Vegetarian
+Vegan
+Eggetarian
+Non-vegetarian
+
+Cuisine:
+
+Indian
+South Indian
+North Indian
+etc.
+
+Allergies:
+
+Peanuts
+Milk
+Shellfish
+etc.
+
+Never recommend an excluded allergen.
+
+Allergen filtering happens BEFORE Mistral ranking.
+
+========================================================
+27. MULTILINGUAL AI COACH
+========================================================
+
+Support:
+
+English
+Tamil
+Telugu
+Hindi
+Kannada
+
+Also support romanized Indian language input.
+
+Examples:
+
+"nenu ivala em tinnanu?"
+
+"innaiku naan enna sapten?"
+
+"maine aaj kya khaya?"
+
+"ivattu naanu enu tinde?"
+
+The Coach should respond in the user's selected language.
+
+If the user asks in another supported language:
+
+respond in that language when appropriate.
+
+Nutrition values remain unchanged.
+
+========================================================
+28. MULTILINGUAL EXAMPLE
+========================================================
+
+Telugu:
+
+"నేను ఈ రోజు ఏమి తిన్నాను?"
+
+Response:
+
+"ఈ రోజు మీరు ఉదయం 2 ఇడ్లీలు మరియు సాంబార్ తీసుకున్నారు..."
+
+Tamil:
+
+"நான் இன்று என்ன சாப்பிட்டேன்?"
+
+Response:
+
+"இன்று நீங்கள் காலை உணவாக 2 இட்லி மற்றும் சாம்பார் எடுத்துள்ளீர்கள்..."
+
+Keep food names localized where possible but preserve canonical IDs internally.
+
+========================================================
+29. COACH MEMORY
+========================================================
+
+The Coach should use persisted product data such as:
+
+meal history
+preferences
+health profile
+goals
+
+Do NOT create an uncontrolled AI memory that stores arbitrary sensitive health information.
+
+Use explicit structured product data.
+
+========================================================
+30. DAILY PLAN VISUALIZATION
+========================================================
+
+Create a beautiful timeline.
+
+TODAY'S PLAN
+
+08:00
+Breakfast
+✓ Logged
+
+13:00
+Lunch
+✓ Logged
+
+16:30
+Snack
+○ Recommended
+
+20:00
+Dinner
+○ Recommended
+
+Each card:
+
+meal name
+foods
+nutrition
+status
+reason
+
+Buttons:
+
+Log this meal
+
+Swap
+
+View details
+
+========================================================
+31. COACH HOME CARD
+========================================================
+
+On Home show:
+
+AI COACH
+
+"Your nutrition snapshot is ready."
+
+Example:
+
+3 meals logged
+
+1,245 kcal consumed
+
+1,328 kcal remaining
+
+Protein:
+20 g remaining
+
+Fiber:
+17 g remaining
+
+Next:
+
+"Plan the rest of my day →"
+
+========================================================
+32. CHAT SUGGESTIONS
+========================================================
+
+Starter prompts:
+
+🍽 What did I eat today?
+
+🥗 What should I eat next?
+
+📅 Plan the rest of my day
+
+📊 How am I doing today?
+
+💧 How much water do I have left?
+
+🔄 Give me another dinner
+
+💡 What should I improve?
+
+========================================================
+33. RESPONSE STYLE
+========================================================
+
+The Coach should be:
+
+friendly
+clear
+concise
+supportive
+non-judgmental
+evidence-aware
+
+Avoid:
+
+long essays
+medical jargon
+fear
+shame
+unnecessary warnings
+generic motivational content
+
+Prefer:
+
+short answer
++
+numbers
++
+reason
++
+next action
+
+========================================================
+34. VALIDATION
+========================================================
+
+Every recommendation must pass validation.
+
+Validate:
+
+nutrition values
+allergies
+diet
+health constraints
+candidate existence
+evidence
+schema
+unsupported claims
+
+If validation fails:
+
+DO NOT show the recommendation.
+
+Generate another candidate or provide a safe fallback.
+
+========================================================
+35. FALLBACK
+========================================================
+
+If Mistral is unavailable:
+
+The user should still be able to:
+
+view meals
+view nutrition
+view daily summary
+view deterministic candidate meals
+
+Do not display:
+
+"SLM unavailable"
+
+unless necessary.
+
+Prefer:
+
+"Your nutrition data is available. Personalized coaching is temporarily unavailable."
+
+Never fabricate an AI response.
+
+========================================================
+36. PERFORMANCE
+========================================================
+
+Do not regenerate the entire Coach context for every UI render.
+
+Use:
+
+request-based context generation
+appropriate caching
+context invalidation
+
+Invalidate after:
+
+meal mutation
+profile mutation
+goal mutation
+diet mutation
+allergy mutation
+water mutation
+
+========================================================
+37. SECURITY
+========================================================
+
+Never expose:
+
+Mistral API key
+Genkit credentials
+database credentials
+RAG infrastructure
+
+to frontend/mobile.
+
+The Coach API should authenticate the user.
+
+Never allow:
+
+user A to query user B's nutrition context.
+
+========================================================
+38. API DESIGN
+========================================================
+
+Implement or adapt:
+
+GET
+/api/coach/context
+
+POST
+/api/coach/chat
+
+POST
+/api/coach/daily-plan
+
+POST
+/api/coach/plan-rest-of-day
+
+POST
+/api/coach/meal-swap
+
+GET
+/api/coach/snapshot
+
+Reuse existing backend architecture wherever possible.
+
+Do not create duplicate data sources.
+
+========================================================
+39. DATABASE
+========================================================
+
+If required, create:
+
+coach_sessions
+
+coach_messages
+
+coach_daily_plans
+
+coach_recommendations
+
+But do not store unnecessary raw health data.
+
+Suggested:
+
+coach_messages:
+
+id
+user_id
+session_id
+role
+intent
+message
+created_at
+
+coach_recommendations:
+
+id
+user_id
+date
+meal_slot
+candidate_id
+reason
+created_at
+
+========================================================
+40. FRONTEND COMPONENTS
+========================================================
+
+Create:
+
+AICoachCard
+
+AICoachScreen
+
+CoachChat
+
+CoachMessage
+
+CoachInput
+
+CoachSuggestionChips
+
+DailyNutritionSnapshot
+
+DailyMealTimeline
+
+CoachRecommendationCard
+
+MealSwapSheet
+
+EvidenceCard
+
+NutritionGapCard
+
+DailyPlanCard
+
+========================================================
+41. MOBILE UX
+========================================================
+
+For Android:
+
+AI Coach should be accessible from:
+
+Home
+
+and
+
+bottom navigation / dedicated Coach entry.
+
+Mobile layout:
+
+Header
+
+AI Coach
+
+Today's snapshot
+
+Today's meal timeline
+
+Next meal
+
+Chat
+
+Input:
+
+"Ask your coach..."
+
+Mic should NOT be implemented unless explicitly requested.
+
+Text is enough.
+
+========================================================
+42. WEB UX
+========================================================
+
+For web:
+
+Create a dedicated:
+
+/coach
+
+page.
+
+Desktop layout:
+
+LEFT:
+
+Today's nutrition
+
+CENTER:
+
+Coach conversation
+
+RIGHT:
+
+Today's meal plan
+
+Responsive behavior:
+
+desktop
+tablet
+mobile
+
+========================================================
+43. COACH CONVERSATION EXAMPLE
+========================================================
+
+USER:
+
+"What should I eat tonight?"
+
+SYSTEM CONTEXT:
+
+Breakfast:
+2 Idli + Sambar
+
+Lunch:
+Rice + Dal + Vegetables
+
+Snack:
+Apple + Almonds
+
+Remaining:
+
+Calories:
+1,050 kcal
+
+Protein:
+31 g
+
+Fiber:
+16 g
+
+Condition:
+
+T2DM
+
+Diet:
+
+Vegetarian
+
+Coach:
+
+"For dinner, a vegetable dal bowl with 2 rotis and a side salad could fit your remaining nutrition while adding protein and fiber. I prioritized a balanced carbohydrate portion because your profile includes T2DM.
+
+Estimated nutrition:
+480 kcal
+22 g protein
+62 g carbs
+12 g fat
+14 g fiber
+
+Why:
+• fits your remaining nutrition
+• vegetarian
+• avoids your listed allergens
+• adds protein and fiber
+• checked against the available nutrition guidance
+
+[Log this meal] [Swap meal]"
+
+========================================================
+44. FULL-DAY EXAMPLE
+========================================================
+
+USER:
+
+"Plan my entire day."
+
+Coach:
+
+YOUR NUTRISLM DAY
+
+Breakfast
+2 Idli + Sambar
+
+Lunch
+Rice + Dal + Vegetables
+
+Snack
+Apple + Almonds
+
+Dinner
+Vegetable Dal + Roti + Salad
+
+Daily overview:
+
+Calories:
+target / projected
+
+Protein:
+target / projected
+
+Fiber:
+target / projected
+
+Water:
+target / current
+
+Then:
+
+"Your plan prioritizes your configured dietary preferences and health constraints while using verified nutrition data."
+
+========================================================
+45. DON'T OVERPROMISE
+========================================================
+
+Never say:
+
+"this will control your blood sugar"
+
+"this will cure diabetes"
+
+"this will treat CKD"
+
+"this meal is medically safe"
+
+"this guarantees weight loss"
+
+Instead:
+
+"may fit your configured nutrition targets"
+
+"considered your health profile"
+
+"aligned with the available dietary guidance"
+
+"discuss individualized medical targets with your healthcare professional"
+
+========================================================
+46. CRITICAL SOURCE-OF-TRUTH RULE
+========================================================
+
+This is NON-NEGOTIABLE.
+
+The Coach is NOT the source of truth.
+
+SOURCE OF TRUTH:
+
+Food nutrition
+→ trusted nutrition database
+
+Nutrition calculation
+→ deterministic backend calculator
+
+Logged meals
+→ database
+
+Daily summary
+→ database aggregation
+
+Health profile
+→ user profile
+
+Disease constraints
+→ configured evidence-backed constraint engine
+
+Evidence
+→ RAG
+
+AI reasoning
+→ Mistral / SLM
+
+Coach
+→ synthesizes verified information
+
+========================================================
+47. TESTING
+========================================================
+
+Create automated tests.
+
+Test:
+
+1. Today summary
+
+2. Meal history
+
+3. Next meal
+
+4. Full-day plan
+
+5. Plan rest of day
+
+6. Nutrition gaps
+
+7. Water
+
+8. Meal swaps
+
+9. T2DM
+
+10. CKD
+
+11. CVD
+
+12. Allergies
+
+13. Vegetarian
+
+14. Multilingual
+
+15. Romanized language
+
+16. New meal invalidates context
+
+17. Edited meal invalidates context
+
+18. Deleted meal invalidates context
+
+19. Profile change invalidates context
+
+20. Recommendation changes after meal logging
+
+21. Mistral failure
+
+22. Invalid model JSON
+
+23. Unsupported recommendation
+
+24. Database nutrition overrides model nutrition
+
+25. User isolation
+
+========================================================
+48. CRITICAL TEST
+========================================================
+
+Mock Mistral response:
+
+"2 eggs = 10 kcal."
+
+Database returns:
+
+actual nutrition.
+
+Expected:
+
+Coach must display the deterministic database value.
+
+Never the model value.
+
+========================================================
+49. STALE CONTEXT TEST
+========================================================
+
+Initial:
+
+Breakfast logged.
+
+Coach:
+
+"What should I eat next?"
+
+Then:
+
+User logs lunch.
+
+Then asks:
+
+"What should I eat next?"
+
+Expected:
+
+Coach recommendation must use:
+
+Breakfast
++
+Lunch
++
+new remaining nutrition.
+
+It must NOT use the old context.
+
+========================================================
+50. RECOMMENDATION REPETITION TEST
+========================================================
+
+If the Coach recommended:
+
+Dal + Roti + Salad
+
+previously,
+
+then after the user logs another meal:
+
+generate a fresh recommendation where appropriate.
+
+Do not blindly return the same meal.
+
+Use recommendation history.
+
+========================================================
+51. UI QUALITY
+========================================================
+
+The Coach UI must look like a premium startup product.
+
+Use:
+
+beautiful message cards
+nutrition chips
+meal cards
+progress indicators
+evidence cards
+clear CTAs
+subtle animations
+excellent typography
+proper spacing
+
+Avoid:
+
+generic ChatGPT clone appearance.
+
+NutriSLM should have its own identity.
+
+========================================================
+52. STARTUP DIFFERENTIATOR
+========================================================
+
+The key product differentiator is:
+
+A normal chatbot answers questions.
+
+NutriSLM AI Coach understands the user's nutrition state.
+
+Therefore:
+
+User asks:
+
+"What should I eat?"
+
+Generic AI:
+
+suggests a random healthy meal.
+
+NutriSLM:
+
+checks:
+
+what you already ate
+what remains
+your health profile
+your allergies
+your diet
+your goals
+your meal history
+nutrition evidence
+
+then recommends an appropriate candidate.
+
+This distinction must be reflected in both architecture and UI.
+
+========================================================
+53. FINAL COACH EXPERIENCE
+========================================================
+
+The ideal experience is:
+
+USER:
+
+"Coach, what should I eat tonight?"
+
+↓
+
+NUTRISLM
+
+Reads today's meals
+
+↓
+
+Calculates remaining nutrition
+
+↓
+
+Checks health profile
+
+↓
+
+Checks allergies
+
+↓
+
+Checks dietary preferences
+
+↓
+
+Retrieves relevant evidence
+
+↓
+
+Generates candidate meals
+
+↓
+
+Calculates candidate nutrition
+
+↓
+
+Filters constraints
+
+↓
+
+Mistral ranks candidates
+
+↓
+
+Validator verifies
+
+↓
+
+Coach explains
+
+↓
+
+USER
+
+"Looks good"
+
+↓
+
+LOG THIS MEAL
+
+↓
+
+Meal saved
+
+↓
+
+Daily nutrition updated
+
+↓
+
+Coach context refreshed
+
+↓
+
+Next recommendation updated
+
+This should feel like a continuous nutrition companion.
+
+========================================================
+54. FINAL ACCEPTANCE CRITERIA
+========================================================
+
+The AI Coach is complete only when:
+
+[ ] Coach screen exists
+
+[ ] Chat works
+
+[ ] Today's meal context works
+
+[ ] Entire day summary works
+
+[ ] Full-day plan works
+
+[ ] Rest-of-day planning works
+
+[ ] Next meal works
+
+[ ] Nutrition gaps work
+
+[ ] Meal swaps work
+
+[ ] Meal history works
+
+[ ] Water status works
+
+[ ] T2DM context works
+
+[ ] CKD context works
+
+[ ] CVD context works
+
+[ ] Allergy filtering works
+
+[ ] Dietary filtering works
+
+[ ] RAG evidence works
+
+[ ] Mistral reasoning works
+
+[ ] Deterministic nutrition remains authoritative
+
+[ ] Recommendation validator works
+
+[ ] Context refresh works
+
+[ ] No stale recommendations
+
+[ ] No repeated context
+
+[ ] Multilingual Coach works
+
+[ ] Tamil works
+
+[ ] Telugu works
+
+[ ] Hindi works
+
+[ ] Kannada works
+
+[ ] Romanized input works
+
+[ ] Web Coach works
+
+[ ] Mobile Coach works
+
+[ ] Authentication works
+
+[ ] User data isolation works
+
+[ ] API keys remain server-side
+
+[ ] Error handling works
+
+[ ] Automated tests pass
+
+========================================================
+55. FINAL CTO INSTRUCTION
+========================================================
+
+Do NOT build a generic AI chatbot.
+
+Build:
+
+NUTRISLM AI COACH
+
+A context-aware nutrition intelligence assistant that understands the user's entire nutrition day.
+
+The Coach should answer:
+
+"What did I eat?"
+
+"What should I eat next?"
+
+"How am I doing?"
+
+"What am I missing?"
+
+"Plan the rest of my day."
+
+"Give me my complete diet plan."
+
+"Why did you recommend this?"
+
+"Give me another option."
+
+"What did I eat yesterday?"
+
+"How has my nutrition been this week?"
+
+All responses must be grounded in actual NutriSLM data.
+
+The AI should reason.
+
+The database should provide facts.
+
+The deterministic calculator should provide numbers.
+
+RAG should provide evidence.
+
+The disease constraint engine should enforce configured constraints.
+
+The validator should prevent unsupported recommendations.
+
+The Coach should bring all of this together into one beautiful user experience.
+
+BUILD THIS LIKE A REAL STARTUP PRODUCT.
+
+Do not create a demo chatbot.
+
+Do not create fake data.
+
+Do not hard-code recommendations.
+
+Do not invent nutrition values.
+
+Do not invent user history.
+
+Do not expose API keys.
+
+Do not diagnose diseases.
+
+Start by auditing the existing NutriSLM codebase and architecture.
+
+Then implement the AI Coach incrementally.
+
+Run tests after each major phase.
+
+Finally verify the complete flow:
+
+MEAL LOGGED
+→
+NUTRITION UPDATED
+→
+COACH CONTEXT REFRESHED
+→
+DAILY STATE UPDATED
+→
+RAG RETRIEVED
+→
+CONSTRAINTS APPLIED
+→
+CANDIDATES GENERATED
+→
+MISTRAL REASONS
+→
+VALIDATOR CHECKS
+→
+COACH RESPONDS
+→
+USER CAN LOG RECOMMENDATION

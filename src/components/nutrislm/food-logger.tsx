@@ -2,36 +2,45 @@
 
 /**
  * Food logging wizard — the core product flow:
- *   1. INPUT   — describe food in any language, or attach a photo.
+ *   1. INPUT   — pick a mode (take a photo / upload an image / describe) and
+ *                send it for AI perception.
  *   2. REVIEW  — AI perception results; user fixes matches/quantities, then the
  *                server computes nutrition (confirm-food) for preview.
  *   3. LOGGED  — meal persisted transactionally & idempotently (log-meal).
  * The client never computes nutrition — all numbers come from the API.
+ *
+ * Visual language mirrors the "Log a Meal" design: three pastel mode cards, a
+ * dashed capture surface with drag & drop, a "Recent Inputs" one-tap reuse
+ * strip, and a full-width gradient "Analyze Meal with AI" CTA.
  */
 import { useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
+  ArrowRight,
+  BarChart3,
   CalendarClock,
   Camera,
   CheckCircle2,
   ChevronLeft,
+  ChevronRight,
+  History,
+  ImagePlus,
   Languages,
   Loader2,
   Mic,
+  NotebookPen,
   Plus,
   Search,
   Sparkles,
   Trash2,
-  Type,
   X,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -43,6 +52,7 @@ import type {
   ConfirmFoodResponse,
   FoodSearchItem,
   MatchStatus,
+  MealDetail,
   NutritionValues,
   QuantitySource,
 } from "@/lib/client/types";
@@ -82,6 +92,24 @@ function getSpeechRecognition(): SpeechRecognitionCtor | null {
   return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
 }
 
+/** Voice recognition locale per UI language key (rail language picker). */
+const VOICE_LOCALES: Record<string, string> = {
+  en: "en-IN",
+  ta: "ta-IN",
+  te: "te-IN",
+  hi: "hi-IN",
+  kn: "kn-IN",
+};
+
+/** Describe-mode placeholder examples per UI language key. */
+const PLACEHOLDERS: Record<string, string> = {
+  en: 'e.g. "2 idli and one cup sambar" · "rendu dosa, oru chaya" · "2 roti aur dal"',
+  ta: 'உதா: "இரண்டு இட்லி, ஒரு கப் சாம்பார்"',
+  te: 'ఉదా: "రెండు దోసలు, ఒక కప్ చాయ"',
+  hi: 'जैसे: "2 रोटी और दाल"',
+  kn: 'ಉದಾ: "ಎರಡು ಇಡ್ಲಿ, ಒಂದು ಕಪ್ ಸಾಂಬಾರ್"',
+};
+
 /** Default clock time per meal slot for backfilled days (local time). */
 const SLOT_DEFAULT_TIME: Record<string, string> = {
   breakfast: "08:30",
@@ -117,6 +145,46 @@ function prettyDate(key: string): string {
   return new Date(`${key}T12:00:00`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
 }
 
+/** Deterministic thumbnail for a recent meal, picked from its food names. */
+function thumbFor(meal: MealDetail): string {
+  const names = meal.foods.map((f) => `${f.name} ${f.originalName ?? ""}`).join(" ").toLowerCase();
+  if (/idli/.test(names)) return "/images/meal-idli.png";
+  if (/dosa|chaya|chai/.test(names)) return "/images/dish-dosa.png";
+  if (/banana/.test(names)) return "/images/meal-banana.png";
+  if (/buttermilk|chaas|curd/.test(names)) return "/images/meal-buttermilk.png";
+  if (/rice|dal|roti|sabzi|khichdi|salad|chicken/.test(names)) return "/images/meal-rice-dal.png";
+  return "/images/meal-generic.png";
+}
+
+/** Human relative time for recent-input chips ("2 minutes ago", "Yesterday"). */
+function relTime(iso: string): string {
+  const then = new Date(iso).getTime();
+  if (!Number.isFinite(then)) return "";
+  const mins = Math.max(0, Math.round((Date.now() - then) / 60000));
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins} minute${mins === 1 ? "" : "s"} ago`;
+  const thenDay = new Date(iso);
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const startOfThat = new Date(thenDay.getFullYear(), thenDay.getMonth(), thenDay.getDate()).getTime();
+  const dayDiff = Math.round((startOfToday - startOfThat) / 86400000);
+  if (dayDiff === 0) {
+    const hours = Math.round(mins / 60);
+    return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+  }
+  if (dayDiff === 1) return "Yesterday";
+  if (dayDiff < 7) return `${dayDiff} days ago`;
+  return thenDay.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+}
+
+/** "2 cup rice + 1 katori dal" style reuse text for the describe box. */
+function reuseTextOf(meal: MealDetail): string {
+  return meal.foods
+    .map((f) => `${f.quantity} ${f.unit} ${f.name}`.replace(/\s+/g, " ").trim())
+    .join(" + ")
+    .slice(0, 500);
+}
+
 interface EditableLine {
   lineId: string;
   originalName: string;
@@ -149,8 +217,33 @@ interface LoggedSummary {
 }
 
 type Step = "input" | "review" | "logged";
+type LogMode = "camera" | "upload" | "text";
 
-export function FoodLogger({ onLogged }: { onLogged: () => void }) {
+const MODE_UI: Record<LogMode, { title: string; sub: string; icon: React.ComponentType<{ className?: string }>; chip: string; arrow: string }> = {
+  camera: {
+    title: "Take a Photo",
+    sub: "Snap your meal",
+    icon: Camera,
+    chip: "bg-gradient-to-br from-emerald-500 to-emerald-600 text-white shadow-sm shadow-emerald-600/30",
+    arrow: "bg-emerald-600 text-white",
+  },
+  upload: {
+    title: "Upload Image",
+    sub: "Choose from gallery",
+    icon: ImagePlus,
+    chip: "bg-gradient-to-br from-sky-400 to-sky-500 text-white shadow-sm shadow-sky-500/30",
+    arrow: "bg-sky-500 text-white",
+  },
+  text: {
+    title: "Describe Your Meal",
+    sub: "Type or speak",
+    icon: NotebookPen,
+    chip: "bg-gradient-to-br from-amber-400 to-amber-500 text-white shadow-sm shadow-amber-500/30",
+    arrow: "bg-amber-500 text-white",
+  },
+};
+
+export function FoodLogger({ onLogged, voiceLang }: { onLogged: () => void; voiceLang?: string }) {
   const { toast } = useToast();
   const backfillRequest = useNutriStore((s) => s.backfillRequest);
   const clearBackfill = useNutriStore((s) => s.clearBackfill);
@@ -158,10 +251,11 @@ export function FoodLogger({ onLogged }: { onLogged: () => void }) {
   const clearLoggerRequest = useNutriStore((s) => s.clearLoggerRequest);
 
   const [step, setStep] = useState<Step>("input");
-  const [tab, setTab] = useState("text");
+  const [mode, setMode] = useState<LogMode>("camera");
   const [text, setText] = useState("");
   const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
   const [imageHint, setImageHint] = useState("");
+  const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [logDate, setLogDate] = useState<string>(todayKey());
@@ -204,20 +298,26 @@ export function FoodLogger({ onLogged }: { onLogged: () => void }) {
     toast({ title: `Logging for ${prettyDate(backfillRequest.date)}`, description: "The meal you log now lands in that day's history." });
   }, [backfillRequest, clearBackfill, toast]);
 
-  /** Quick Actions / hero can open the logger in text/photo (or voice) mode. */
+  /** Quick Actions / hero / search / examples can drive the logger remotely. */
   useEffect(() => {
     if (!loggerRequest) return;
     setStep("input");
-    setTab(loggerRequest.tab);
+    if (loggerRequest.text) {
+      setMode("text");
+      setText(loggerRequest.text.slice(0, 2000));
+      toast({ title: "Loaded into Describe", description: "Check the text, then Analyze Meal with AI." });
+    } else {
+      setMode(loggerRequest.tab === "photo" ? "upload" : "text");
+    }
     if (loggerRequest.openFile) {
-      // wait a tick so the photo tab content (and its file input) exists
+      // wait a tick so the photo UI (and its file input) exists
       requestAnimationFrame(() => fileInputRef.current?.click());
     }
     if (loggerRequest.voice) {
       requestAnimationFrame(() => startVoiceInput());
     }
     clearLoggerRequest();
-  }, [loggerRequest, clearLoggerRequest]);
+  }, [loggerRequest, clearLoggerRequest, toast]);
 
   /** Voice input via the browser Web Speech API — transcript lands in the
    *  describe textarea; the AI pipeline handles the rest. */
@@ -239,7 +339,7 @@ export function FoodLogger({ onLogged }: { onLogged: () => void }) {
     }
     try {
       const rec = new Ctor();
-      rec.lang = "en-IN";
+      rec.lang = VOICE_LOCALES[voiceLang ?? "en"] ?? "en-IN";
       rec.interimResults = false;
       rec.continuous = false;
       rec.onresult = (e) => {
@@ -248,7 +348,7 @@ export function FoodLogger({ onLogged }: { onLogged: () => void }) {
           .trim();
         if (transcript) {
           setText((prev) => (prev ? `${prev} ${transcript}` : transcript));
-          setTab("text");
+          setMode("text");
           toast({ title: "Heard you", description: `“${transcript}” — check the text, then Analyze.` });
         }
       };
@@ -277,15 +377,15 @@ export function FoodLogger({ onLogged }: { onLogged: () => void }) {
     setAnalyzeError(null);
     try {
       const payload: { text?: string; imageDataUrl?: string; hint?: string } = {};
-      if (tab === "text" && text.trim()) payload.text = text.trim();
-      if (tab === "photo" && imageDataUrl) {
+      if (mode === "text" && text.trim()) payload.text = text.trim();
+      if (mode !== "text" && imageDataUrl) {
         payload.imageDataUrl = imageDataUrl;
         if (imageHint.trim()) payload.hint = imageHint.trim();
       }
       const res = await api.analyzeFood(payload);
       setMeta({
         draftId: res.draftId,
-        inputType: tab === "photo" ? "image" : "text",
+        inputType: mode === "text" ? "text" : "image",
         detectedLanguage: res.detectedLanguage,
         aiOk: res.aiOk,
         aiNote: res.aiNote,
@@ -430,33 +530,14 @@ export function FoodLogger({ onLogged }: { onLogged: () => void }) {
   // ---------------- render ----------------
 
   return (
-    <Card id="log-food" className="scroll-mt-20 transition-shadow duration-300 hover:shadow-md hover:shadow-primary/5">
-      <CardHeader>
-        <div className="flex items-center justify-between gap-2">
-          <div>
-            <CardTitle className="flex items-center gap-2">
-              <Sparkles className="h-5 w-5 text-primary" aria-hidden />
-              Log what you ate
-            </CardTitle>
-            <CardDescription>
-              Type in any language — English, தமிழ், తెలుగు, हिन्दी, ಕನ್ನಡ, or romanized — or upload a food photo.
-            </CardDescription>
-          </div>
-          {step !== "input" && (
-            <Button variant="ghost" size="icon" aria-label="Start over" onClick={resetAll}>
-              <X className="h-4 w-4" />
-            </Button>
-          )}
-        </div>
-      </CardHeader>
-
-      {step === "input" && (
-        <>
-          <CardContent className="space-y-4">
+    <div className="space-y-3">
+      <Card id="log-food" className="scroll-mt-24 overflow-hidden rounded-3xl border-border/60 shadow-sm transition-shadow duration-300 hover:shadow-md hover:shadow-primary/5">
+        {step === "input" && (
+          <CardContent className="space-y-5 p-4 sm:p-6">
             <FavoritesBar onLogged={onLogged} />
 
             {/* logging date — today by default, backfill for the last 30 days */}
-            <div className="rounded-lg border bg-muted/30 p-2.5">
+            <div className="rounded-xl border bg-muted/30 px-3 py-2.5">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
                   <CalendarClock className="size-3.5" aria-hidden />
@@ -507,17 +588,50 @@ export function FoodLogger({ onLogged }: { onLogged: () => void }) {
               )}
             </div>
 
-            <Tabs value={tab} onValueChange={setTab}>
-              <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="text" className="gap-1.5">
-                  <Type className="h-4 w-4" aria-hidden /> Describe
-                </TabsTrigger>
-                <TabsTrigger value="photo" className="gap-1.5">
-                  <Camera className="h-4 w-4" aria-hidden /> Photo
-                </TabsTrigger>
-              </TabsList>
+            {/* mode picker — three cards, one active */}
+            <div role="radiogroup" aria-label="How do you want to log this meal?" className="grid grid-cols-1 gap-3 min-[480px]:grid-cols-3">
+              {(Object.keys(MODE_UI) as LogMode[]).map((m) => {
+                const ui = MODE_UI[m];
+                const active = mode === m;
+                const Icon = ui.icon;
+                return (
+                  <button
+                    key={m}
+                    type="button"
+                    role="radio"
+                    aria-checked={active}
+                    onClick={() => setMode(m)}
+                    className={cn(
+                      "group/mode flex flex-col rounded-2xl border p-4 text-left transition-all duration-150 active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-ring",
+                      active
+                        ? "border-2 border-primary bg-primary/5 shadow-md shadow-primary/10"
+                        : "border-border/70 bg-background shadow-sm hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md",
+                    )}
+                  >
+                    <span className={cn("flex h-11 w-11 items-center justify-center rounded-2xl transition-transform group-active/mode:scale-95", ui.chip)}>
+                      <Icon className="h-5 w-5" aria-hidden />
+                    </span>
+                    <span className="mt-3 flex items-center justify-between gap-1">
+                      <span className="text-sm font-bold leading-tight">{ui.title}</span>
+                      <span
+                        aria-hidden
+                        className={cn(
+                          "flex h-6 w-6 shrink-0 items-center justify-center rounded-full transition-all duration-150",
+                          active ? cn(ui.arrow, "translate-x-0.5") : "bg-muted text-muted-foreground group-hover/mode:bg-primary/10 group-hover/mode:text-primary",
+                        )}
+                      >
+                        <ArrowRight className="h-3.5 w-3.5" />
+                      </span>
+                    </span>
+                    <span className="mt-0.5 text-xs text-muted-foreground">{ui.sub}</span>
+                  </button>
+                );
+              })}
+            </div>
 
-              <TabsContent value="text" className="mt-3 space-y-3">
+            {/* capture surface — per-mode input UI */}
+            {mode === "text" ? (
+              <div className="space-y-3">
                 {voiceListening && (
                   <p
                     className="flex items-center gap-2 rounded-md border border-rose-500/40 bg-rose-500/10 px-2.5 py-1.5 text-xs font-medium text-rose-700 dark:text-rose-400"
@@ -533,23 +647,13 @@ export function FoodLogger({ onLogged }: { onLogged: () => void }) {
                 )}
                 <Textarea
                   aria-label="Food description"
-                  placeholder={'e.g. "2 idli and one cup sambar" · "rendu dosa, oru chaya" · "2 roti aur dal"'}
-                  className="min-h-24 resize-y"
+                  placeholder={PLACEHOLDERS[voiceLang ?? "en"] ?? PLACEHOLDERS.en}
+                  className="min-h-36 resize-y text-base"
                   value={text}
                   maxLength={2000}
                   onChange={(e) => setText(e.target.value)}
                 />
-                <div className="flex flex-wrap items-center gap-1.5">
-                  {EXAMPLES.map((ex) => (
-                    <button
-                      key={ex}
-                      type="button"
-                      onClick={() => setText(ex)}
-                      className="rounded-full border bg-muted/50 px-3 py-1 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/10 hover:text-foreground"
-                    >
-                      {ex}
-                    </button>
-                  ))}
+                <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
                     onClick={startVoiceInput}
@@ -557,220 +661,424 @@ export function FoodLogger({ onLogged }: { onLogged: () => void }) {
                     aria-label={voiceListening ? "Stop voice input" : "Start voice input"}
                     title={voiceListening ? "Stop voice input" : "Speak your meal"}
                     className={cn(
-                      "ml-auto inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-all active:scale-95",
+                      "inline-flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-xs font-medium transition-all active:scale-95",
                       voiceListening
                         ? "border-rose-500/50 bg-rose-500/15 text-rose-700 dark:text-rose-400"
                         : "bg-background text-muted-foreground hover:border-rose-400/50 hover:bg-rose-500/10 hover:text-rose-700 dark:hover:text-rose-400",
                     )}
                   >
                     <Mic className={cn("h-3.5 w-3.5", voiceListening && "animate-pulse")} aria-hidden />
-                    {voiceListening ? "Stop" : "Voice"}
+                    {voiceListening ? "Stop listening" : "Speak instead"}
                   </button>
+                  <span className="ml-auto text-[11px] tabular-nums text-muted-foreground">{text.length}/2000</span>
                 </div>
-              </TabsContent>
-
-              <TabsContent value="photo" className="mt-3 space-y-3">
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className={cn(
-                    "flex w-full flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed p-6 text-center transition-colors hover:border-primary/50 hover:bg-primary/5",
-                    imageDataUrl && "border-primary/50 bg-primary/5"
-                  )}
-                  aria-label="Choose a food photo"
-                >
-                  {imageDataUrl ? (
-
-                    <img src={imageDataUrl} alt="Selected food preview" className="max-h-44 rounded-lg object-contain" />
-                  ) : (
-                    <>
-                      <Camera className="h-8 w-8 text-muted-foreground" aria-hidden />
-                      <span className="text-sm font-medium">Tap to add a photo of your meal</span>
-                      <span className="text-xs text-muted-foreground">JPEG, PNG or WebP · up to 6 MB</span>
-                    </>
-                  )}
-                </button>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp,image/gif"
-                  className="sr-only"
-                  aria-label="Food photo file input"
-                  onChange={(e) => handleFileChange(e.target.files?.[0])}
-                />
-                {imageDataUrl && (
-                  <div className="space-y-1.5">
-                    <Label htmlFor="image-hint">Anything the photo can&apos;t show? (optional)</Label>
-                    <Input
-                      id="image-hint"
-                      placeholder="e.g. it's a small bowl, oil was added…"
-                      value={imageHint}
-                      maxLength={300}
-                      onChange={(e) => setImageHint(e.target.value)}
-                    />
-                  </div>
+              </div>
+            ) : imageDataUrl ? (
+              <div className="space-y-3">
+                <div className="overflow-hidden rounded-2xl border bg-muted/30">
+                  <img src={imageDataUrl} alt="Selected food preview" className="mx-auto max-h-72 w-full object-contain" />
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
+                    <ImagePlus className="mr-1.5 h-4 w-4" aria-hidden /> Change photo
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="text-muted-foreground hover:text-destructive"
+                    onClick={() => {
+                      setImageDataUrl(null);
+                      setImageHint("");
+                      if (fileInputRef.current) fileInputRef.current.value = "";
+                    }}
+                  >
+                    <Trash2 className="mr-1.5 h-4 w-4" aria-hidden /> Remove
+                  </Button>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="image-hint">Anything the photo can&apos;t show? (optional)</Label>
+                  <Input
+                    id="image-hint"
+                    placeholder="e.g. it's a small bowl, oil was added…"
+                    value={imageHint}
+                    maxLength={300}
+                    onChange={(e) => setImageHint(e.target.value)}
+                  />
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setDragOver(true);
+                }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setDragOver(false);
+                  void handleFileChange(e.dataTransfer.files?.[0]);
+                }}
+                aria-label={mode === "camera" ? "Take a photo of your meal" : "Upload a meal image from your device"}
+                className={cn(
+                  "group/capture flex w-full flex-col overflow-hidden rounded-2xl border-2 border-dashed text-left transition-colors focus-visible:outline-2 focus-visible:outline-ring sm:flex-row sm:items-stretch",
+                  dragOver ? "border-primary bg-primary/10" : "border-primary/40 hover:border-primary/60 hover:bg-primary/5",
                 )}
-              </TabsContent>
-            </Tabs>
+              >
+                <img
+                  src="/images/hero-bowl.png"
+                  alt=""
+                  aria-hidden
+                  className="hidden h-44 w-full object-cover sm:block sm:h-auto sm:w-[44%]"
+                />
+                <span className="flex flex-1 flex-col items-center justify-center gap-1 p-6 text-center">
+                  <span className="flex h-14 w-14 items-center justify-center rounded-full bg-primary/10 text-primary ring-4 ring-primary/5 transition-transform group-active/capture:scale-95">
+                    <Camera className="h-6 w-6" aria-hidden />
+                  </span>
+                  <span className="mt-1.5 text-base font-bold">{mode === "camera" ? "Click to take a photo" : "Click to choose an image"}</span>
+                  <span className="text-sm text-muted-foreground">or drag and drop an image here</span>
+                  <span className="mt-2.5 rounded-full border bg-background px-3 py-1 text-[11px] text-muted-foreground">
+                    Supports: JPG, PNG, WebP (Max 6 MB)
+                  </span>
+                </span>
+              </button>
+            )}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/gif"
+              capture={mode === "camera" ? "environment" : undefined}
+              className="sr-only"
+              aria-label="Food photo file input"
+              onChange={(e) => handleFileChange(e.target.files?.[0])}
+            />
 
             {analyzeError && (
-              <p className="mt-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">
+              <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">
                 {analyzeError}
               </p>
             )}
-          </CardContent>
-          <CardFooter className="flex-col items-stretch gap-2">
-            <Button
-              onClick={handleAnalyze}
-              disabled={analyzing || (tab === "text" ? !text.trim() : !imageDataUrl)}
-              size="lg"
-              className="shadow-sm shadow-primary/20 transition-all active:scale-[0.98]"
-            >
-              {analyzing ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
-                  {tab === "photo" ? "Looking at your photo…" : "Reading your food…"}
-                </>
-              ) : (
-                <>
-                  <Sparkles className="mr-2 h-4 w-4" aria-hidden />
-                  Analyze with AI
-                </>
-              )}
-            </Button>
-            <p className="text-center text-[11px] text-muted-foreground">
-              The AI only identifies food and quantities — nutrition numbers always come from our verified database.
-            </p>
-          </CardFooter>
-        </>
-      )}
 
-      {step === "review" && (
-        <>
-          <CardContent className="space-y-4">
-            {/* meta badges */}
-            <div className="flex flex-wrap items-center gap-2">
-              {meta?.detectedLanguage && (
-                <Badge variant="secondary" className="gap-1.5">
-                  <Languages className="h-3.5 w-3.5" aria-hidden />
-                  {languageLabel(meta.detectedLanguage.language)}
-                </Badge>
-              )}
-              {meta?.aiOk && meta.aiLatencyMs != null && (
-                <Badge variant="outline" className="font-mono text-[10px] text-muted-foreground">
-                  AI {(meta.aiLatencyMs / 1000).toFixed(1)}s
-                </Badge>
-              )}
-              {meta && !meta.aiOk && (
-                <Badge variant="outline" className="gap-1 border-amber-500/40 text-amber-700 dark:text-amber-400">
-                  <AlertTriangle className="h-3.5 w-3.5" aria-hidden /> Offline parser used
-                </Badge>
-              )}
-            </div>
+            <RecentInputs disabled={analyzing} onReuse={(reuse, name) => {
+              setMode("text");
+              setText(reuse);
+              toast({ title: `“${name}” loaded`, description: "Check the description, then Analyze Meal with AI." });
+            }} />
 
-            {/* meal type */}
-            <div className="flex items-center gap-3">
-              <Label htmlFor="meal-type" className="w-20 shrink-0 text-sm">
-                Meal
-              </Label>
-              <Select value={mealType} onValueChange={setMealType}>
-                <SelectTrigger id="meal-type" className="w-44" aria-label="Meal type">
-                  <SelectValue placeholder="Select meal" />
-                </SelectTrigger>
-                <SelectContent>
-                  {MEAL_TYPES.map((m) => (
-                    <SelectItem key={m} value={m}>
-                      {mealLabel(m)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {logDate !== todayKey() && (
-              <p className="flex items-start gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-xs text-amber-700 dark:text-amber-400">
-                <CalendarClock className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-                <span>
-                  This meal will be logged for <strong>{prettyDate(logDate)}</strong> at {SLOT_DEFAULT_TIME[mealType] ?? "12:30"} (slot default).
-                </span>
-              </p>
-            )}
-
-            {/* lines */}
-            <ul className="max-h-96 space-y-2 overflow-y-auto pr-1 [scrollbar-width:thin]">
-              {lines.map((l) => (
-                <LineEditor key={l.lineId} line={l} onPatch={patchLine} onRemove={removeLine} />
-              ))}
-              {lines.length === 0 && <p className="py-4 text-center text-sm text-muted-foreground">No food lines — add one below.</p>}
-            </ul>
-
-            <AddFoodRow onPick={addFoodFromSearch} />
-          </CardContent>
-          <CardFooter className="flex-col items-stretch gap-3">
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={resetAll} disabled={confirming || logging}>
-                <ChevronLeft className="mr-1 h-4 w-4" aria-hidden /> Back
-              </Button>
-              <Button onClick={handleConfirm} disabled={confirming || logging || lines.length === 0} className="flex-1">
-                {confirming ? (
+            {/* CTA + trust line */}
+            <div className="space-y-2.5 pt-1">
+              <Button
+                onClick={handleAnalyze}
+                disabled={analyzing || (mode === "text" ? !text.trim() : !imageDataUrl)}
+                size="lg"
+                className="group/cta h-14 w-full rounded-2xl bg-gradient-to-r from-emerald-600 via-emerald-600 to-green-600 text-base font-semibold text-white shadow-lg shadow-emerald-600/25 transition-all hover:from-emerald-500 hover:via-emerald-500 hover:to-green-500 hover:shadow-emerald-600/35 active:scale-[0.99] dark:shadow-emerald-500/15"
+              >
+                {analyzing ? (
                   <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> Calculating nutrition…
+                    <Loader2 className="mr-2 h-5 w-5 animate-spin" aria-hidden />
+                    {mode === "text" ? "Reading your food…" : "Looking at your photo…"}
                   </>
-                ) : confirmResult && !isDirtyAgainst(lines, confirmResult) ? (
-                  "Recalculate nutrition"
                 ) : (
-                  "Calculate nutrition"
+                  <>
+                    <Sparkles className="mr-2 h-5 w-5" aria-hidden />
+                    Analyze Meal with AI
+                    <ArrowRight className="ml-2 h-5 w-5 transition-transform duration-200 group-hover/cta:translate-x-1" aria-hidden />
+                  </>
                 )}
               </Button>
+              <p className="text-center text-[11px] text-muted-foreground">
+                The AI only identifies food and quantities — nutrition numbers always come from our verified database.
+              </p>
             </div>
+          </CardContent>
+        )}
 
-            {confirmError && (
-              <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">
-                {confirmError}
-              </p>
-            )}
+        {step === "review" && (
+          <>
+            <CardContent className="space-y-4 p-4 sm:p-6">
+              {/* meta badges */}
+              <div className="flex flex-wrap items-center gap-2">
+                {meta?.detectedLanguage && (
+                  <Badge variant="secondary" className="gap-1.5">
+                    <Languages className="h-3.5 w-3.5" aria-hidden />
+                    {languageLabel(meta.detectedLanguage.language)}
+                  </Badge>
+                )}
+                {meta?.aiOk && meta.aiLatencyMs != null && (
+                  <Badge variant="outline" className="font-mono text-[10px] text-muted-foreground">
+                    AI {(meta.aiLatencyMs / 1000).toFixed(1)}s
+                  </Badge>
+                )}
+                {meta && !meta.aiOk && (
+                  <Badge variant="outline" className="gap-1 border-amber-500/40 text-amber-700 dark:text-amber-400">
+                    <AlertTriangle className="h-3.5 w-3.5" aria-hidden /> Offline parser used
+                  </Badge>
+                )}
+              </div>
 
-            {confirmResult && (
-              <ConfirmPreview
-                result={confirmResult}
-                stale={isDirtyAgainst(lines, confirmResult)}
-                onLog={handleLog}
-                logging={logging}
-              />
-            )}
-          </CardFooter>
-        </>
-      )}
+              {/* meal type */}
+              <div className="flex items-center gap-3">
+                <Label htmlFor="meal-type" className="w-20 shrink-0 text-sm">
+                  Meal
+                </Label>
+                <Select value={mealType} onValueChange={setMealType}>
+                  <SelectTrigger id="meal-type" className="w-44" aria-label="Meal type">
+                    <SelectValue placeholder="Select meal" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {MEAL_TYPES.map((m) => (
+                      <SelectItem key={m} value={m}>
+                        {mealLabel(m)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
 
-      {step === "logged" && loggedResult && (
-        <CardContent className="space-y-4">
-          <div className="flex flex-col items-center gap-3 rounded-xl border border-emerald-600/30 bg-emerald-600/10 p-6 text-center">
-            <CheckCircle2 className="h-10 w-10 text-emerald-600" aria-hidden />
-            <div>
-              <p className="font-semibold">
-                {mealLabel(loggedResult.mealType)} logged{loggedResult.duplicate ? " (already existed)" : ""}
-              </p>
-              {loggedResult.backfillDate && (
-                <p className="mt-0.5 inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-400">
-                  <CalendarClock className="size-3" aria-hidden />
-                  for {prettyDate(loggedResult.backfillDate)}
+              {logDate !== todayKey() && (
+                <p className="flex items-start gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-xs text-amber-700 dark:text-amber-400">
+                  <CalendarClock className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+                  <span>
+                    This meal will be logged for <strong>{prettyDate(logDate)}</strong> at {SLOT_DEFAULT_TIME[mealType] ?? "12:30"} (slot default).
+                  </span>
                 </p>
               )}
-              <p className="text-sm text-muted-foreground">
-                {formatKcal(loggedResult.totals.calories)} · protein {formatGrams(loggedResult.totals.protein)} · carbs{" "}
-                {formatGrams(loggedResult.totals.carbohydrates)} · fat {formatGrams(loggedResult.totals.fat)}
-              </p>
+
+              {/* lines */}
+              <ul className="max-h-96 space-y-2 overflow-y-auto pr-1 [scrollbar-width:thin]">
+                {lines.map((l) => (
+                  <LineEditor key={l.lineId} line={l} onPatch={patchLine} onRemove={removeLine} />
+                ))}
+                {lines.length === 0 && <p className="py-4 text-center text-sm text-muted-foreground">No food lines — add one below.</p>}
+              </ul>
+
+              <AddFoodRow onPick={addFoodFromSearch} />
+            </CardContent>
+            <CardFooter className="flex-col items-stretch gap-3 p-4 pt-0 sm:p-6 sm:pt-0">
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={resetAll} disabled={confirming || logging}>
+                  <ChevronLeft className="mr-1 h-4 w-4" aria-hidden /> Back
+                </Button>
+                <Button onClick={handleConfirm} disabled={confirming || logging || lines.length === 0} className="flex-1">
+                  {confirming ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> Calculating nutrition…
+                    </>
+                  ) : confirmResult && !isDirtyAgainst(lines, confirmResult) ? (
+                    "Recalculate nutrition"
+                  ) : (
+                    "Calculate nutrition"
+                  )}
+                </Button>
+              </div>
+
+              {confirmError && (
+                <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">
+                  {confirmError}
+                </p>
+              )}
+
+              {confirmResult && (
+                <ConfirmPreview
+                  result={confirmResult}
+                  stale={isDirtyAgainst(lines, confirmResult)}
+                  onLog={handleLog}
+                  logging={logging}
+                />
+              )}
+            </CardFooter>
+          </>
+        )}
+
+        {step === "logged" && loggedResult && (
+          <CardContent className="space-y-4 p-4 sm:p-6">
+            <div className="flex flex-col items-center gap-3 rounded-2xl border border-emerald-600/30 bg-gradient-to-b from-emerald-600/10 to-emerald-600/5 p-6 text-center">
+              <span className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-600/15 ring-4 ring-emerald-600/10">
+                <CheckCircle2 className="h-8 w-8 text-emerald-600" aria-hidden />
+              </span>
+              <div>
+                <p className="font-semibold">
+                  {mealLabel(loggedResult.mealType)} logged{loggedResult.duplicate ? " (already existed)" : ""}
+                </p>
+                {loggedResult.backfillDate && (
+                  <p className="mt-0.5 inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-400">
+                    <CalendarClock className="size-3" aria-hidden />
+                    for {prettyDate(loggedResult.backfillDate)}
+                  </p>
+                )}
+                <p className="text-sm text-muted-foreground">
+                  {formatKcal(loggedResult.totals.calories)} · protein {formatGrams(loggedResult.totals.protein)} · carbs{" "}
+                  {formatGrams(loggedResult.totals.carbohydrates)} · fat {formatGrams(loggedResult.totals.fat)}
+                </p>
+              </div>
             </div>
+            <ComplianceAlerts compliance={loggedResult.compliance} conditions={[]} />
+            <div className="flex gap-2">
+              <Button variant="outline" className="flex-1" onClick={resetAll}>
+                <Plus className="mr-1 h-4 w-4" aria-hidden /> Log another meal
+              </Button>
+            </div>
+          </CardContent>
+        )}
+      </Card>
+
+      {step === "input" && <FeatureStrip />}
+    </div>
+  );
+}
+
+/** Trust strip under the logger card — the four product promises. */
+function FeatureStrip() {
+  const items = [
+    { icon: Camera, label: "AI Food Recognition" },
+    { icon: BarChart3, label: "Accurate Nutrition" },
+    { icon: Sparkles, label: "Personalized Insights" },
+    { icon: Languages, label: "Supports Indian Languages" },
+  ];
+  return (
+    <ul className="flex flex-wrap items-center justify-center gap-x-7 gap-y-2 px-2" aria-label="What you get with every meal">
+      {items.map(({ icon: Icon, label }) => (
+        <li key={label} className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+          <Icon className="h-4 w-4 text-primary" aria-hidden />
+          {label}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * Recent Inputs — one-tap reuse of recently logged meals. Purely convenience:
+ * clicking a chip pre-fills the describe box, and the normal analyze → confirm
+ * → log pipeline re-verifies everything server-side.
+ */
+function RecentInputs({ onReuse, disabled }: { onReuse: (reuse: string, name: string) => void; disabled: boolean }) {
+  const dataVersion = useNutriStore((s) => s.dataVersion);
+  const [meals, setMeals] = useState<MealDetail[] | null>(null);
+  const [dismissed, setDismissed] = useState(false);
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const [canLeft, setCanLeft] = useState(false);
+  const [canRight, setCanRight] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    api
+      .recentMeals()
+      .then((res) => {
+        if (alive) setMeals(res.meals.slice(0, 8));
+      })
+      .catch(() => {
+        if (alive) setMeals([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [dataVersion]);
+
+  function updateArrows() {
+    const el = scrollerRef.current;
+    if (!el) return;
+    setCanLeft(el.scrollLeft > 4);
+    setCanRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 4);
+  }
+
+  useEffect(() => {
+    requestAnimationFrame(updateArrows);
+  }, [meals]);
+
+  function scrollBy(dir: 1 | -1) {
+    const el = scrollerRef.current;
+    if (!el) return;
+    el.scrollBy({ left: dir * 260, behavior: "smooth" });
+  }
+
+  if (dismissed) return null;
+
+  return (
+    <section aria-label="Recent inputs — log one of your recent meals again">
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="flex items-center gap-2 text-sm font-bold">
+          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/10 text-primary" aria-hidden>
+            <History className="h-3.5 w-3.5" />
+          </span>
+          Recent Inputs
+        </h3>
+        <button
+          type="button"
+          className="rounded text-xs font-medium text-primary underline-offset-2 hover:underline"
+          onClick={() => setDismissed(true)}
+        >
+          Clear all
+        </button>
+      </div>
+
+      <div className="relative mt-2">
+        {meals === null ? (
+          <div className="flex gap-3 overflow-hidden" aria-hidden>
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="h-[4.25rem] w-52 shrink-0 animate-pulse rounded-xl bg-muted/60" />
+            ))}
           </div>
-          <ComplianceAlerts compliance={loggedResult.compliance} conditions={[]} />
-          <div className="flex gap-2">
-            <Button variant="outline" className="flex-1" onClick={resetAll}>
-              <Plus className="mr-1 h-4 w-4" aria-hidden /> Log another meal
-            </Button>
-          </div>
-        </CardContent>
-      )}
-    </Card>
+        ) : meals.length === 0 ? (
+          <p className="rounded-xl border border-dashed px-3 py-3 text-xs text-muted-foreground">
+            Meals you log will appear here for one-tap reuse.
+          </p>
+        ) : (
+          <>
+            {canLeft && (
+              <button
+                type="button"
+                aria-label="Scroll recent inputs left"
+                onClick={() => scrollBy(-1)}
+                className="absolute left-0 top-1/2 z-10 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border bg-background/95 text-foreground shadow-md transition-transform hover:scale-110 active:scale-95"
+              >
+                <ChevronLeft className="h-4 w-4" aria-hidden />
+              </button>
+            )}
+            <div
+              ref={scrollerRef}
+              onScroll={updateArrows}
+              className="flex snap-x gap-3 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            >
+              {meals.map((meal) => {
+                const reuse = reuseTextOf(meal);
+                const name = meal.foods.map((f) => f.name).slice(0, 3).join(", ") || mealLabel(meal.mealType);
+                return (
+                  <button
+                    key={meal.id}
+                    type="button"
+                    disabled={disabled || !reuse}
+                    onClick={() => onReuse(reuse, name)}
+                    title={`Log again: ${reuse}`}
+                    aria-label={`Log again — ${name}`}
+                    className="group/recent flex w-52 shrink-0 snap-start items-center gap-2.5 rounded-xl border bg-background p-2 pr-3 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md active:scale-[0.98] disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-ring"
+                  >
+                    <img src={thumbFor(meal)} alt="" aria-hidden className="h-11 w-11 shrink-0 rounded-lg object-cover" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-semibold">{name}</span>
+                      <span className="block text-[11px] text-muted-foreground">{relTime(meal.eatenAt || meal.loggedAt)}</span>
+                    </span>
+                    <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/60 transition-transform group-hover/recent:translate-x-0.5 group-hover/recent:text-primary" aria-hidden />
+                  </button>
+                );
+              })}
+            </div>
+            {canRight && (
+              <button
+                type="button"
+                aria-label="Scroll recent inputs right"
+                onClick={() => scrollBy(1)}
+                className="absolute right-0 top-1/2 z-10 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border bg-background/95 text-foreground shadow-md transition-transform hover:scale-110 active:scale-95"
+              >
+                <ChevronRight className="h-4 w-4" aria-hidden />
+              </button>
+            )}
+          </>
+        )}
+      </div>
+    </section>
   );
 }
 

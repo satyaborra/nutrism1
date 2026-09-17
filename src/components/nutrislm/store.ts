@@ -12,6 +12,8 @@ export interface LoggerRequest {
   tab: "text" | "photo";
   openFile?: boolean;
   voice?: boolean;
+  /** Prefill the describe textarea (search bar, quick examples, "log again"). */
+  text?: string;
   nonce: number;
 }
 
@@ -32,7 +34,7 @@ interface NutriStore {
   clearSession: () => void;
   bumpData: () => void;
   setView: (view: AppView) => void;
-  requestLogger: (req: { tab: "text" | "photo"; openFile?: boolean; voice?: boolean }) => void;
+  requestLogger: (req: { tab: "text" | "photo"; openFile?: boolean; voice?: boolean; text?: string }) => void;
   clearLoggerRequest: () => void;
   requestBackfill: (date: string) => void;
   clearBackfill: () => void;
