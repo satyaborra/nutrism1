@@ -45,6 +45,11 @@ export const GET = withApi("foods_browse", async ({ req }: { req: NextRequest })
   const start = (page - 1) * pageSize;
   const pageRows = rows.slice(start, start + pageSize);
 
+  // Facets: distinct categories across ALL rows matching q+veg (independent of the
+  // active category filter) so the chip row reflects the whole library, not page 1.
+  const facetCategories = Array.from(new Set(rows.map((f) => f.category))).sort();
+  const vegCount = rows.filter((f) => f.isVeg).length;
+
   return NextResponse.json({
     foods: pageRows.map((f) => ({
       id: f.id,
@@ -64,6 +69,10 @@ export const GET = withApi("foods_browse", async ({ req }: { req: NextRequest })
     page,
     pageSize,
     hasMore: start + pageRows.length < total,
+    facets: {
+      categories: facetCategories,
+      vegCount,
+    },
   });
 });
 

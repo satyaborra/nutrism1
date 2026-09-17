@@ -7,7 +7,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
-import { CheckCircle2, ChevronDown, HelpCircle, History, Loader2, Pencil, Repeat, Trash2, TriangleAlert, Camera } from "lucide-react";
+import { CheckCircle2, ChevronDown, HelpCircle, History, Loader2, Pencil, Repeat, Star, Trash2, TriangleAlert, Camera } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,7 +25,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { useNutriStore, MEAL_TYPE_ICON, mealLabel } from "./store";
+import { useNutriStore, MEAL_TYPE_ICON, MEAL_TYPE_ACCENT, mealLabel } from "./store";
 import { formatGrams, formatKcal } from "@/lib/client/format";
 import type { Compliance, MealDetail, RecentMealsResponse } from "@/lib/client/types";
 import { api } from "@/lib/client/api";
@@ -312,6 +312,8 @@ export function RecentMeals() {
   const [editing, setEditing] = useState<MealDetail | null>(null);
   const [pendingRelog, setPendingRelog] = useState<MealDetail | null>(null);
   const [relogging, setRelogging] = useState(false);
+  const [favSourceMealIds, setFavSourceMealIds] = useState<Set<string>>(new Set());
+  const [favoritingId, setFavoritingId] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -319,10 +321,41 @@ export function RecentMeals() {
       .recentMeals()
       .then((res) => alive && (setData(res), setError(null)))
       .catch(() => alive && setError("Could not load your meals."));
+    // Favorites (only their sourceMealIds are needed here) — non-fatal on failure.
+    api
+      .favorites()
+      .then((res) => {
+        if (!alive) return;
+        setFavSourceMealIds(new Set(res.favorites.map((f) => f.sourceMealId).filter((v): v is string => v !== null)));
+      })
+      .catch(() => undefined);
     return () => {
       alive = false;
     };
   }, [dataVersion]);
+
+  async function handleFavorite(m: MealDetail) {
+    if (favSourceMealIds.has(m.id)) {
+      toast({ title: "Already in favorites", description: "Use the ⭐ chips in the food logger to quick-log or remove it." });
+      return;
+    }
+    setFavoritingId(m.id);
+    try {
+      const res = await api.createFavorite(m.id);
+      toast({ title: "Saved to favorites", description: `${res.favorite.name} is now one tap away in the food logger.` });
+      setFavSourceMealIds((prev) => new Set(prev).add(m.id));
+      // Bump so the logger's FavoritesBar refetches and shows the new chip.
+      bumpData();
+    } catch (e) {
+      toast({
+        title: "Could not save favorite",
+        description: e instanceof Error ? e.message : "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setFavoritingId(null);
+    }
+  }
 
   async function handleDelete() {
     if (!pendingDelete) return;
@@ -401,8 +434,16 @@ export function RecentMeals() {
             {data.meals.map((m) => (
               <li key={m.id}>
                 <Collapsible>
-                  <div className="group/meal relative rounded-xl border transition-colors hover:border-primary/40 hover:bg-muted/30 data-[state=open]:border-primary/40">
-                    <CollapsibleTrigger className="flex w-full items-center gap-3 rounded-xl p-3 pr-20 text-left transition-colors hover:bg-muted/50">
+                  <div className="group/meal relative overflow-hidden rounded-xl border transition-colors hover:border-primary/40 hover:bg-muted/30 data-[state=open]:border-primary/40">
+                    {/* Slot accent stripe */}
+                    <span
+                      aria-hidden
+                      className={cn(
+                        "absolute inset-y-0 left-0 w-1 transition-opacity",
+                        MEAL_TYPE_ACCENT[m.mealType] ?? "bg-muted-foreground/30",
+                      )}
+                    />
+                    <CollapsibleTrigger className="flex w-full items-center gap-3 rounded-xl p-3 pl-4 pr-28 text-left transition-colors hover:bg-muted/50">
                       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-base transition-transform group-hover/meal:scale-105" aria-hidden>
                         {MEAL_TYPE_ICON[m.mealType] ?? "🍽️"}
                       </span>
@@ -426,6 +467,11 @@ export function RecentMeals() {
                               <Repeat className="h-2.5 w-2.5" aria-hidden /> again
                             </Badge>
                           )}
+                          {m.source === "favorite" && (
+                            <Badge variant="secondary" className="gap-0.5 text-[9px] uppercase tracking-wide">
+                              <Star className="h-2.5 w-2.5" aria-hidden /> fav
+                            </Badge>
+                          )}
                         </span>
                         <span className="mt-0.5 block truncate text-xs text-muted-foreground">
                           {m.foods.map((f) => f.name).join(" · ")}
@@ -440,9 +486,30 @@ export function RecentMeals() {
                       <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" aria-hidden />
                     </CollapsibleTrigger>
 
-                    {/* Edit + delete — overlay the row's right edge. Always visible on touch-sized
+                    {/* Favorite + edit + delete — overlay the row's right edge. Always visible on touch-sized
                         screens (no hover), hover-revealed from sm up. */}
                     <div className="absolute right-2 top-2 flex gap-1 opacity-100 transition-all focus-within:opacity-100 sm:opacity-0 sm:group-hover/meal:opacity-100">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label={favSourceMealIds.has(m.id) ? `Saved in favorites` : `Save ${mealLabel(m.mealType)} logged at ${format(new Date(m.eatenAt), "HH:mm")} to favorites`}
+                        aria-pressed={favSourceMealIds.has(m.id)}
+                        title={favSourceMealIds.has(m.id) ? "Saved in favorites" : "Save to favorites"}
+                        className={cn(
+                          "h-7 w-7 transition-all",
+                          favSourceMealIds.has(m.id)
+                            ? "text-amber-500"
+                            : "text-muted-foreground/50 hover:bg-amber-500/10 hover:text-amber-500",
+                        )}
+                        onClick={() => void handleFavorite(m)}
+                        disabled={favoritingId === m.id}
+                      >
+                        {favoritingId === m.id ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                        ) : (
+                          <Star className={cn("h-3.5 w-3.5", favSourceMealIds.has(m.id) && "fill-amber-500")} aria-hidden />
+                        )}
+                      </Button>
                       <Button
                         variant="ghost"
                         size="icon"

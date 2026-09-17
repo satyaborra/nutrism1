@@ -12,7 +12,9 @@ export type Operation =
   | "meal_delete" | "meal_edit" | "recommendation_feedback" | "recommendation_feedback_get"
   | "hydration_get" | "hydration_post" | "weekly_summary"
   | "coach_insight" | "coach_chat" | "coach_chat_get" | "nutrition_export"
-  | "foods_browse" | "food_detail" | "meal_relog";
+  | "foods_browse" | "food_detail" | "meal_relog"
+  | "favorites_list" | "favorites_create" | "favorites_delete" | "favorites_log"
+  | "weekly_digest";
 
 export interface RequestContext {
   requestId: string;

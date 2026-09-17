@@ -92,12 +92,36 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <main className="mx-auto w-full max-w-6xl flex-1 px-4 pb-10 pt-6">{children}</main>
 
       <footer className="mt-auto border-t bg-muted/40 pb-[env(safe-area-inset-bottom)]">
-        <div className="mx-auto flex w-full max-w-6xl flex-col items-center justify-between gap-2 px-4 py-4 text-xs text-muted-foreground sm:flex-row">
-          <p>
-            <span className="font-semibold text-foreground">NutriSLM</span> — multimodal personalized nutrition
-            intelligence. AI understands, the database answers, deterministic code calculates.
-          </p>
-          <p>Nutrition values from IFCT 2017 / USDA references. Not medical advice.</p>
+        {/* Accent hairline echoing the brand gradient */}
+        <div className="h-0.5 w-full bg-gradient-to-r from-primary/0 via-primary/50 to-teal-500/0" aria-hidden />
+        <div className="mx-auto w-full max-w-6xl px-4 py-5 text-xs text-muted-foreground">
+          <div className="flex flex-col items-center gap-4 text-center sm:flex-row sm:items-start sm:justify-between sm:gap-8 sm:text-left">
+            <div className="max-w-sm space-y-1.5">
+              <p className="flex items-center justify-center gap-1.5 sm:justify-start">
+                <span className="flex h-5 w-5 items-center justify-center rounded-md bg-primary text-primary-foreground" aria-hidden>
+                  <Salad className="h-3 w-3" />
+                </span>
+                <span className="text-sm font-bold tracking-tight text-foreground">
+                  Nutri<span className="text-primary">SLM</span>
+                </span>
+              </p>
+              <p>
+                Multimodal personalized nutrition intelligence. AI understands, the database answers, deterministic code
+                calculates — never the other way around.
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-foreground/70">Data sources</p>
+              <ul className="space-y-0.5">
+                <li>IFCT 2017 · USDA food references</li>
+                <li>WHO · ICMR-NIN · ADA · KDIGO guidance</li>
+              </ul>
+            </div>
+            <div className="max-w-xs space-y-1.5">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-foreground/70">Disclaimer</p>
+              <p>Not medical advice. Constraints are configurable starting points — confirm clinical targets with your care team.</p>
+            </div>
+          </div>
         </div>
       </footer>
     </div>

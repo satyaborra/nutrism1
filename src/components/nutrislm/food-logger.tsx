@@ -46,6 +46,7 @@ import type {
 } from "@/lib/client/types";
 import { api, ApiError, fileToDataUrl } from "@/lib/client/api";
 import { MEAL_TYPES, languageLabel, mealLabel } from "./store";
+import { FavoritesBar } from "./favorites-bar";
 import { ComplianceAlerts } from "./summary";
 
 const EXAMPLES = [
@@ -299,7 +300,8 @@ export function FoodLogger({ onLogged }: { onLogged: () => void }) {
 
       {step === "input" && (
         <>
-          <CardContent>
+          <CardContent className="space-y-4">
+            <FavoritesBar onLogged={onLogged} />
             <Tabs value={tab} onValueChange={setTab}>
               <TabsList className="grid w-full grid-cols-2">
                 <TabsTrigger value="text" className="gap-1.5">

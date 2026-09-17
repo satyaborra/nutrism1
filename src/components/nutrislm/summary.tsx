@@ -4,12 +4,58 @@
  * Shared presentational pieces: compliance alerts, macro progress, calorie ring.
  * All numbers rendered via format helpers — never raw floats.
  */
+import { useEffect, useRef, useState } from "react";
 import { AlertTriangle, BadgeCheck, CircleHelp, BookOpen, Flame, UtensilsCrossed, Wheat } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatGrams, formatKcal, formatMg, formatNumber, pct } from "@/lib/client/format";
 import type { Compliance, ComplianceState, DailySummaryResponse, NutritionValues } from "@/lib/client/types";
 import { cn } from "@/lib/utils";
+
+/**
+ * Animated count-up: eases the displayed number from its previous value to the
+ * target whenever the value changes. Respects prefers-reduced-motion by snapping.
+ */
+function useCountUp(target: number, durationMs = 700): number {
+  const [display, setDisplay] = useState(target);
+  const fromRef = useRef(target);
+  const rafRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const from = fromRef.current;
+    if (from === target) return;
+    const reduced =
+      typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    if (reduced) {
+      // Snap without animation — still deferred via rAF so setState is not
+      // called synchronously inside the effect body (react-hooks rule).
+      rafRef.current = requestAnimationFrame(() => {
+        fromRef.current = target;
+        setDisplay(target);
+      });
+      return;
+    }
+    const start = performance.now();
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / durationMs);
+      const eased = 1 - Math.pow(1 - t, 3); // ease-out cubic
+      const value = from + (target - from) * eased;
+      setDisplay(value);
+      if (t < 1) {
+        rafRef.current = requestAnimationFrame(tick);
+      } else {
+        fromRef.current = target;
+      }
+    };
+    rafRef.current = requestAnimationFrame(tick);
+    return () => {
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+      fromRef.current = target;
+    };
+  }, [target, durationMs]);
+
+  return display;
+}
 
 const COMPLIANCE_UI: Record<ComplianceState, { label: string; className: string; icon: React.ReactNode }> = {
   COMPLIANT: {
@@ -141,6 +187,8 @@ export function NutrientBar({
 
 export function CalorieRing({ consumed, target }: { consumed: number; target: number }) {
   const percent = pct(consumed, target);
+  const animated = useCountUp(consumed);
+  const animatedPercent = target > 0 ? Math.round((animated / target) * 100) : percent;
   const radius = 52;
   const circumference = 2 * Math.PI * radius;
   const dash = (percent / 100) * circumference;
@@ -162,9 +210,9 @@ export function CalorieRing({ consumed, target }: { consumed: number; target: nu
         />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className="text-2xl font-bold tabular-nums">{formatNumber(consumed)}</span>
+        <span className="text-2xl font-bold tabular-nums" aria-hidden>{formatNumber(Math.round(animated))}</span>
         <span className="text-[11px] text-muted-foreground">of {formatNumber(target)} kcal</span>
-        <span className={cn("mt-0.5 text-xs font-semibold", over ? "text-destructive" : "text-primary")}>{percent}%</span>
+        <span className={cn("mt-0.5 text-xs font-semibold", over ? "text-destructive" : "text-primary")} aria-hidden>{animatedPercent}%</span>
       </div>
     </div>
   );

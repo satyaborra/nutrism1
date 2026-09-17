@@ -35,6 +35,14 @@ export const MEAL_TYPE_ICON: Record<string, string> = {
   dinner: "🌙",
 };
 
+/** Subtle left-accent colors per meal slot on history rows. */
+export const MEAL_TYPE_ACCENT: Record<string, string> = {
+  breakfast: "bg-amber-400/70",
+  lunch: "bg-emerald-500/70",
+  snack: "bg-orange-400/70",
+  dinner: "bg-rose-400/70",
+};
+
 export function mealLabel(t: string): string {
   return t.charAt(0).toUpperCase() + t.slice(1);
 }

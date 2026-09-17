@@ -28,6 +28,7 @@ model User {
   hydration       HydrationLog[]
   mealFeedback    RecommendationFeedback[]
   coachMessages   CoachMessage[]
+  favorites       Favorite[]
 }
 
 model Profile {
@@ -272,6 +273,27 @@ model CoachMessage {
   createdAt DateTime @default(now())
 
   @@index([userId, threadId, createdAt])
+}
+
+// ============ FAVORITES ============
+
+// A pinned "quick log" meal — a reusable, user-curated combo (usually saved
+// from a logged meal). Lines snapshot quantity/unit; matched foods are ALWAYS
+// recomputed from the Food table at log time (same trust model as re-log).
+model Favorite {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name         String // user-visible label, e.g. "2 idli + sambar"
+  mealType     String // breakfast | lunch | snack | dinner (slot at save time)
+  items        String   // JSON FavoriteItem[] {foodId?, displayName, originalName?, quantity, unit, preparation?, confidence?, quantitySource, nutrition snapshot}
+  sourceMealId String?
+  useCount     Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([userId, name])
+  @@index([userId, updatedAt])
 }
 
 // ============ OBSERVABILITY ============

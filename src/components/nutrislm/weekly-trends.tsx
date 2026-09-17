@@ -16,6 +16,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Bar, BarChart, CartesianGrid, Cell, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api } from "@/lib/client/api";
 import { useNutriStore } from "./store";
+import { WeeklyDigestDialog } from "./weekly-digest";
 import type { WeeklySummaryResponse } from "@/lib/client/types";
 
 type Metric = "calories" | "protein";
@@ -138,6 +139,7 @@ export function WeeklyTrends() {
                 <TabsTrigger value="protein" className="text-xs">Protein</TabsTrigger>
               </TabsList>
             </Tabs>
+            <WeeklyDigestDialog />
             <Button
               variant="ghost"
               size="icon"

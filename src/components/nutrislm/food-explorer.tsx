@@ -303,7 +303,9 @@ export function FoodLibrary() {
         .browseFoods({ q: debouncedQ || undefined, category: category || undefined, veg: vegOnly || undefined, page: targetPage, pageSize: 24 })
         .then((res) => {
           setData((prev) =>
-            append && prev ? { ...res, foods: [...prev.foods, ...res.foods] } : res,
+            append && prev
+              ? { ...res, foods: [...prev.foods, ...res.foods], facets: res.facets ?? prev.facets }
+              : res,
           );
           setError(null);
         })
@@ -326,7 +328,12 @@ export function FoodLibrary() {
     return () => clearTimeout(t);
   }, [fetchPage]);
 
+  // Categories come from server-side facets computed across ALL rows matching the
+  // query (not just the visible page) — the chip row is therefore always complete.
   const categories = useMemo(() => {
+    if (data?.facets?.categories?.length) {
+      return Object.keys(CATEGORY_META).filter((c) => data.facets!.categories.includes(c));
+    }
     if (data?.foods) {
       const present = new Set(data.foods.map((f) => f.category));
       return Object.keys(CATEGORY_META).filter((c) => present.has(c));

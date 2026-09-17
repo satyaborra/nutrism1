@@ -511,6 +511,11 @@ export interface FoodLibraryResponse {
   page: number;
   pageSize: number;
   hasMore: boolean;
+  /** Facets computed across ALL rows matching the query (not just this page). */
+  facets?: {
+    categories: string[];
+    vegCount: number;
+  };
 }
 
 export interface FoodDetailResponse {
@@ -575,4 +580,80 @@ export interface RelogResponse {
   totals: NutritionValues;
   source: string;
   recommendationInvalidated: boolean;
+}
+
+// ---------- Favorites (pinned quick-log meals) ----------
+
+export interface FavoriteItem {
+  id: string;
+  name: string;
+  mealType: string;
+  itemCount: number;
+  itemNames: string[];
+  /** Deterministic server estimate (matched recomputed from DB, unmatched snapshot). */
+  estimateKcal: number;
+  useCount: number;
+  sourceMealId: string | null;
+}
+
+export interface FavoritesResponse {
+  favorites: FavoriteItem[];
+  count: number;
+}
+
+export interface FavoriteCreateResponse {
+  ok: boolean;
+  favorite: FavoriteItem;
+  snapshotCalories: number;
+}
+
+export interface FavoriteDeleteResponse {
+  ok: boolean;
+  id: string;
+}
+
+export interface FavoriteLogResponse {
+  ok: boolean;
+  mealId: string;
+  mealType: string;
+  name: string;
+  totals: NutritionValues;
+  source: string;
+  compliance: Compliance;
+  recommendationInvalidated: boolean;
+}
+
+// ---------- Weekly digest (deterministic report card) ----------
+
+export type DigestGrade = "great" | "good" | "watch" | "off";
+
+export interface DigestMetric {
+  key: string;
+  label: string;
+  unit: string;
+  avg: number | null;
+  target: number | null;
+  direction: "under" | "over" | "atLeast";
+  grade: DigestGrade;
+  score: number | null;
+}
+
+export interface WeeklyDigestResponse {
+  weekOf: string;
+  daysLogged: number;
+  metrics: DigestMetric[];
+  /** % of logged days within ±10% of the calorie target. */
+  adherence: number;
+  bestDay: { date: string; calories: number; deltaPct: number } | null;
+  worstSodiumDay: { date: string; sodium: number } | null;
+  topFoods: { name: string; count: number }[];
+  comparison: {
+    available: boolean;
+    caloriesDelta: number | null;
+    proteinDelta: number | null;
+    mealsDelta: number;
+  };
+  hydration: { avgGlasses: number | null; mlPerGlass: number; goal: number };
+  evidence: { source: string; document: string; section: string; text: string } | null;
+  targets: { calories: number; protein: number };
 }

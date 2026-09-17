@@ -20,8 +20,18 @@ export const metadata: Metadata = {
     "Describe food in any language or snap a photo — NutriSLM parses it with AI, verifies nutrition against IFCT/USDA facts, enforces clinical constraints (T2DM/CKD/CVD) with cited evidence, and recommends your next meal.",
   keywords: ["nutrition", "AI", "health", "food logging", "diabetes", "diet", "NutriSLM"],
   authors: [{ name: "NutriSLM" }],
+  manifest: "/manifest.webmanifest",
   icons: {
-    icon: "/logo.svg",
+    icon: [
+      { url: "/logo.svg", type: "image/svg+xml" },
+      { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
+    ],
+    apple: "/icons/apple-touch-icon.png",
+  },
+  appleWebApp: {
+    capable: true,
+    title: "NutriSLM",
+    statusBarStyle: "default",
   },
   openGraph: {
     title: "NutriSLM",
@@ -35,6 +45,10 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#059669" },
+    { media: "(prefers-color-scheme: dark)", color: "#064e3b" },
+  ],
 };
 
 export default function RootLayout({

@@ -30,6 +30,11 @@ import type {
   FoodLibraryResponse,
   FoodDetailResponse,
   WeeklySummaryResponse,
+  FavoritesResponse,
+  FavoriteCreateResponse,
+  FavoriteDeleteResponse,
+  FavoriteLogResponse,
+  WeeklyDigestResponse,
 } from "./types";
 
 export class ApiError extends Error {
@@ -152,6 +157,21 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ mealId }),
     }),
+
+  // Favorites: pinned quick-log meals (same trust model as re-log)
+  favorites: () => request<FavoritesResponse>("/api/nutrition/favorites"),
+  createFavorite: (mealId: string, name?: string) =>
+    request<FavoriteCreateResponse>("/api/nutrition/favorites", {
+      method: "POST",
+      body: JSON.stringify(name ? { mealId, name } : { mealId }),
+    }),
+  deleteFavorite: (favoriteId: string) =>
+    request<FavoriteDeleteResponse>(`/api/nutrition/favorites/${encodeURIComponent(favoriteId)}`, { method: "DELETE" }),
+  logFavorite: (favoriteId: string) =>
+    request<FavoriteLogResponse>(`/api/nutrition/favorites/${encodeURIComponent(favoriteId)}/log`, { method: "POST" }),
+
+  // Weekly digest — deterministic report card over the last 7 days
+  weeklyDigest: () => request<WeeklyDigestResponse>("/api/nutrition/weekly-digest"),
 
   /**
    * Download the meals CSV via blob so auth errors surface as ApiError instead of
