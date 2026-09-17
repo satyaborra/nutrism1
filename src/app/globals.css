@@ -131,6 +131,25 @@
   }
 }
 
+/* Soft breathing glow on the activity calendar's "today" cell. */
+@keyframes today-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 2px color-mix(in oklab, var(--foreground) 70%, transparent),
+      0 0 0 3px transparent;
+  }
+  50% {
+    box-shadow:
+      0 0 0 2px color-mix(in oklab, var(--foreground) 70%, transparent),
+      0 0 10px 2px color-mix(in oklab, var(--primary) 55%, transparent);
+  }
+}
+
+.animate-today-pulse {
+  animation: today-pulse 2.4s ease-in-out infinite;
+}
+
 /* Confetti burst for milestone unlocks — particles drift sideways via
    the --confetti-drift custom property set inline per particle. */
 @keyframes confetti-fall {

@@ -38,6 +38,9 @@ import type {
   WeeklyDigestResponse,
   MilestonesResponse,
   CoachThreadsResponse,
+  ActivityCalendarResponse,
+  NotesJournalResponse,
+  NotesReflectionResponse,
 } from "./types";
 
 export class ApiError extends Error {
@@ -184,6 +187,18 @@ export const api = {
 
   // Milestones — deterministic achievements from the database
   milestones: () => request<MilestonesResponse>("/api/nutrition/milestones"),
+
+  // Activity calendar — deterministic per-day heatmap data
+  activityCalendar: (weeks = 12) =>
+    request<ActivityCalendarResponse>(`/api/nutrition/activity-calendar?weeks=${weeks}`),
+
+  // Notes journal — meal reflection notes + optional AI reflection
+  notesJournal: () => request<NotesJournalResponse>("/api/nutrition/notes-journal"),
+  notesReflect: () =>
+    request<NotesReflectionResponse>("/api/nutrition/notes-journal", {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
 
   /**
    * Download the meals CSV via blob so auth errors surface as ApiError instead of

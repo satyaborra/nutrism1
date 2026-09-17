@@ -17,6 +17,8 @@ import { HydrationWidget } from "./hydration-widget";
 import { AiCoach } from "./ai-coach";
 import { FoodLibrary } from "./food-explorer";
 import { MilestonesStrip } from "./milestones-strip";
+import { ActivityCalendar } from "./activity-calendar";
+import { NotesJournal } from "./notes-journal";
 import { FadeIn } from "./fade-in";
 import { useNutriStore, MEAL_TYPE_ICON } from "./store";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -78,12 +80,20 @@ export function Dashboard() {
         <WeeklyTrends />
       </FadeIn>
 
+      <FadeIn delay={0.105}>
+        <ActivityCalendar />
+      </FadeIn>
+
       <FadeIn delay={0.11}>
         <MilestonesStrip />
       </FadeIn>
 
       <FadeIn delay={0.12}>
         <AiCoach />
+      </FadeIn>
+
+      <FadeIn delay={0.13}>
+        <NotesJournal />
       </FadeIn>
 
       <div className="grid gap-6 lg:grid-cols-5">

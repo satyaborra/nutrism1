@@ -705,3 +705,60 @@ export interface MilestonesResponse {
     foodsTried: number;
   };
 }
+
+// ---------- Activity calendar (deterministic heatmap) ----------
+
+export interface ActivityCalendarMeal {
+  id: string;
+  mealType: string;
+  kcal: number;
+  foods: string;
+}
+
+export interface ActivityDay {
+  date: string;
+  meals: number;
+  calories: number;
+  water: number;
+  items: ActivityCalendarMeal[];
+}
+
+export interface ActivityCalendarResponse {
+  weeks: number;
+  start: string;
+  today: string;
+  days: ActivityDay[];
+  calorieTarget: number;
+  streak: number;
+  activeDays: number;
+}
+
+// ---------- Notes journal (meal reflections) ----------
+
+export interface JournalNote {
+  id: string;
+  date: string;
+  mealType: string;
+  note: string;
+  moods: string[];
+}
+
+export interface NotesJournalResponse {
+  notes: JournalNote[];
+  stats: {
+    total: number;
+    last7: number;
+    last30: number;
+    topMood: string | null;
+    moodCounts: { mood: string; count: number }[];
+  };
+}
+
+export interface NotesReflectionResponse {
+  headline: string;
+  reflection: string;
+  suggestions: string[];
+  engineSource: "ai" | "deterministic_fallback";
+  generatedAt: string;
+  aiNote: string | null;
+}
