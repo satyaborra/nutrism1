@@ -61,6 +61,7 @@ export function serializeMeal(m: MealWithFoods) {
     mealType: m.mealType,
     source: m.source,
     notes: m.notes,
+    userNotes: m.userNotes ?? null,
     eatenAt: m.eatenAt.toISOString(),
     loggedAt: m.loggedAt.toISOString(),
     foods: m.foods.map((f) => ({

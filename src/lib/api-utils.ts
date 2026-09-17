@@ -47,11 +47,20 @@ export function getClientIp(req: NextRequest): string {
 interface HandlerArgs {
   req: NextRequest;
   ctx: RequestContext;
+  /**
+   * Next.js dynamic-route context (`{ params: Promise<Record<string,string>> }`),
+   * forwarded when the route has dynamic segments. Handlers should
+   * `await params` — it is a promise in Next.js 15+/16. Static routes get `null`.
+   */
+  params: Promise<Record<string, string>> | null;
 }
 
 /**
  * Wrap a route handler with request-id, structured error mapping, and audit logging.
  * Usage: export const GET = withApi("health_check", async ({req, ctx}) => {...})
+ * Dynamic routes: export const GET = withApi("meal_get", async ({req, params}) => {
+ *   const { id } = await params!; ...
+ * })
  *
  * opts.quietUnauthorized: audit expected 401s (e.g. session probes) as "ok" with a
  * note instead of "error" — keeps logs/alerts focused on real failures.
@@ -61,11 +70,13 @@ export function withApi(
   handler: (args: HandlerArgs) => Promise<NextResponse>,
   opts: { quietUnauthorized?: boolean } = {},
 ) {
-  return async (req: NextRequest): Promise<NextResponse> => {
+  // Next.js passes the route context (with params) as the 2nd argument for
+  // dynamic segments. We forward it so handlers never destructure it off `req`.
+  return async (req: NextRequest, routeCtx?: { params: Promise<Record<string, string>> }): Promise<NextResponse> => {
     const requestId = req.headers.get("x-request-id") || newRequestId();
     const ctx = startRequest(operation, requestId);
     try {
-      const res = await handler({ req, ctx });
+      const res = await handler({ req, ctx, params: routeCtx?.params ?? null });
       audit(ctx, "ok");
       return res;
     } catch (e) {

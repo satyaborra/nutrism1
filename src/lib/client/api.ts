@@ -115,7 +115,7 @@ export const api = {
   weeklySummary: () => request<WeeklySummaryResponse>("/api/nutrition/weekly-summary"),
   deleteMeal: (mealId: string) =>
     request<MealDeleteResponse>(`/api/nutrition/meals/${encodeURIComponent(mealId)}`, { method: "DELETE" }),
-  editMeal: (mealId: string, payload: { foods: MealEditLineInput[]; notes?: string | null }) =>
+  editMeal: (mealId: string, payload: { foods: MealEditLineInput[]; notes?: string | null; userNotes?: string | null }) =>
     request<MealEditResponse>(`/api/nutrition/meals/${encodeURIComponent(mealId)}`, {
       method: "PATCH",
       body: JSON.stringify(payload),

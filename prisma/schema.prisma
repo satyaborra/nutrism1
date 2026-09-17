@@ -122,6 +122,9 @@ model Meal {
   mealType  String // breakfast | lunch | snack | dinner
   source    String   @default("text") // text | image | manual | recommendation
   notes     String?
+  // User-authored reflection ("why I ate / how I felt") — kept separate from the
+  // server-generated provenance notes above. Never used for nutrition math.
+  userNotes String?
   eatenAt   DateTime
   loggedAt  DateTime @default(now())
   // Denormalized totals snapshot (computed server-side by deterministic calculator)

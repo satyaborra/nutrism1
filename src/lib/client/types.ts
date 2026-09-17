@@ -261,6 +261,8 @@ export interface MealDetail {
   mealType: string;
   source: string | null;
   notes: string | null;
+  /** User-authored reflection ("why I ate / how I felt") — display only. */
+  userNotes?: string | null;
   eatenAt: string;
   loggedAt: string;
   foods: MealFoodDetail[];
@@ -413,6 +415,7 @@ export interface MealEditResponse {
   previousCalories: number;
   totals: NutritionValues;
   foodsCount: number;
+  userNotes?: string | null;
   conversionNotes: MealEditConversionNote[];
   recommendationInvalidated: boolean;
 }

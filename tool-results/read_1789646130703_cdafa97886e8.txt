@@ -1,0 +1,752 @@
+     1→"use client";
+     2→
+     3→/**
+     4→ * Recent meals list — from persisted server data only.
+     5→ * Supports: expandable full nutrient breakdown, per-meal disease-compliance badge
+     6→ * (server-evaluated against DB constraints), edit quantities/units, delete with confirmation.
+     7→ */
+     8→import { useEffect, useMemo, useState } from "react";
+     9→import { format } from "date-fns";
+    10→import { CheckCircle2, ChevronDown, HelpCircle, History, Loader2, Pencil, Repeat, Star, Trash2, TriangleAlert, Camera } from "lucide-react";
+    11→import { Badge } from "@/components/ui/badge";
+    12→import { Button } from "@/components/ui/button";
+    13→import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+    14→import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+    15→import {
+    16→  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
+    17→  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+    18→} from "@/components/ui/alert-dialog";
+    19→import {
+    20→  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+    21→} from "@/components/ui/dialog";
+    22→import { Input } from "@/components/ui/input";
+    23→import { Label } from "@/components/ui/label";
+    24→import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+    25→import { Skeleton } from "@/components/ui/skeleton";
+    26→import { useToast } from "@/hooks/use-toast";
+    27→import { cn } from "@/lib/utils";
+    28→import { useNutriStore, MEAL_TYPE_ICON, MEAL_TYPE_ACCENT, mealLabel } from "./store";
+    29→import { formatGrams, formatKcal } from "@/lib/client/format";
+    30→import type { Compliance, MealDetail, RecentMealsResponse } from "@/lib/client/types";
+    31→import { api } from "@/lib/client/api";
+    32→
+    33→/** Full nutrient panel rows: (label, key, unit, decimals). Order = display order. */
+    34→const NUTRIENT_ROWS: { label: string; key: keyof MealDetail["totals"]; unit: string; decimals: number; tone?: "watch" }[] = [
+    35→  { label: "Calories", key: "calories", unit: "kcal", decimals: 0 },
+    36→  { label: "Protein", key: "protein", unit: "g", decimals: 1 },
+    37→  { label: "Carbs", key: "carbohydrates", unit: "g", decimals: 1 },
+    38→  { label: "Fat", key: "fat", unit: "g", decimals: 1 },
+    39→  { label: "Sat. fat", key: "saturatedFat", unit: "g", decimals: 1, tone: "watch" },
+    40→  { label: "Fiber", key: "fiber", unit: "g", decimals: 1 },
+    41→  { label: "Sugar", key: "sugar", unit: "g", decimals: 1, tone: "watch" },
+    42→  { label: "Sodium", key: "sodium", unit: "mg", decimals: 0, tone: "watch" },
+    43→  { label: "Potassium", key: "potassium", unit: "mg", decimals: 0 },
+    44→  { label: "Phosphorus", key: "phosphorus", unit: "mg", decimals: 0 },
+    45→  { label: "Cholesterol", key: "cholesterol", unit: "mg", decimals: 0, tone: "watch" },
+    46→];
+    47→
+    48→/** Common household units offered when editing a line (merged with the line's current unit). */
+    49→const EDIT_UNITS = ["piece", "cup", "katori", "bowl", "glass", "serving", "tsp", "tbsp", "slice", "g", "ml", "medium", "small", "large"];
+    50→
+    51→/** A glyph hint per household unit so quantities feel tangible at a glance. */
+    52→const UNIT_GLYPH: Record<string, string> = {
+    53→  katori: "🥣", bowl: "🍜", cup: "🥛", glass: "🥛", piece: "◦", pieces: "◦",
+    54→  slice: "🍞", serving: "🍽️", tsp: "🥄", tbsp: "🥄", medium: "🫑", small: "🫑", large: "🫑",
+    55→  g: "⚖️", ml: "⚖️",
+    56→};
+    57→
+    58→/** Substring-tolerant glyph lookup — line units may embed counts ("1 piece"). */
+    59→function unitGlyph(unit: string): string {
+    60→  const u = unit.toLowerCase();
+    61→  for (const [key, glyph] of Object.entries(UNIT_GLYPH)) {
+    62→    if (u.includes(key)) return glyph;
+    63→  }
+    64→  return "◦";
+    65→}
+    66→
+    67→/**
+    68→ * Portion visual — the edited quantity as filled dots (max 8) with an overflow
+    69→ * counter, so “3 katori” reads at a glance without doing arithmetic.
+    70→ */
+    71→function PortionDots({ quantity, unit }: { quantity: number; unit: string }) {
+    72→  const max = 8;
+    73→  const whole = Math.max(0, Math.floor(quantity));
+    74→  const shown = Math.min(whole, max);
+    75→  const overflow = whole - shown;
+    76→  const glyph = unitGlyph(unit);
+    77→  if (whole === 0) return null;
+    78→  return (
+    79→    <span
+    80→      className="inline-flex items-center gap-1"
+    81→      title={`${quantity} × ${unit}`}
+    82→      aria-label={`${quantity} times ${unit}`}
+    83→    >
+    84→      <span aria-hidden className="text-[11px] leading-none opacity-70">{glyph}</span>
+    85→      <span aria-hidden className="flex items-center gap-0.5">
+    86→        {Array.from({ length: shown }).map((_, i) => (
+    87→          <span key={i} className="h-1.5 w-1.5 rounded-full bg-primary/70" />
+    88→        ))}
+    89→        {overflow > 0 && <span className="text-[9px] font-semibold tabular-nums text-primary">+{overflow}</span>}
+    90→      </span>
+    91→    </span>
+    92→  );
+    93→}
+    94→
+    95→function formatValue(n: number, decimals: number): string {
+    96→  if (decimals === 0) return String(Math.round(n));
+    97→  return (Math.round((n + Number.EPSILON) * 10) / 10).toFixed(1);
+    98→}
+    99→
+   100→/** Compact per-meal compliance badge — states evaluated server-side from DB constraints. */
+   101→function ComplianceBadge({ compliance, conditions }: { compliance?: Compliance; conditions: string[] }) {
+   102→  if (!compliance || conditions.length === 0) return null;
+   103→  if (compliance.state === "COMPLIANT") {
+   104→    return (
+   105→      <Badge variant="outline" className="gap-1 border-emerald-500/40 bg-emerald-500/10 px-1.5 py-0 text-[9px] uppercase tracking-wide text-emerald-700 dark:text-emerald-400">
+   106→        <CheckCircle2 className="h-2.5 w-2.5" aria-hidden /> ok
+   107→      </Badge>
+   108→    );
+   109→  }
+   110→  if (compliance.state === "POTENTIALLY_NON_COMPLIANT") {
+   111→    const tip = compliance.violations.map((v) => `${v.condition}: ${v.message}`).join("\n");
+   112→    return (
+   113→      <Badge
+   114→        variant="outline"
+   115→        title={tip}
+   116→        className="gap-1 border-amber-500/40 bg-amber-500/10 px-1.5 py-0 text-[9px] uppercase tracking-wide text-amber-700 dark:text-amber-400"
+   117→      >
+   118→        <TriangleAlert className="h-2.5 w-2.5" aria-hidden /> watch
+   119→      </Badge>
+   120→    );
+   121→  }
+   122→  return (
+   123→    <Badge variant="outline" title="Not all values were available to verify your conditions." className="gap-1 px-1.5 py-0 text-[9px] uppercase tracking-wide text-muted-foreground">
+   124→      <HelpCircle className="h-2.5 w-2.5" aria-hidden /> unclear
+   125→    </Badge>
+   126→  );
+   127→}
+   128→
+   129→interface EditLineState {
+   130→  qty: string;
+   131→  unit: string;
+   132→  removed: boolean;
+   133→}
+   134→
+   135→function EditMealDialog({
+   136→  meal,
+   137→  open,
+   138→  onOpenChange,
+   139→  onSaved,
+   140→}: {
+   141→  meal: MealDetail | null;
+   142→  open: boolean;
+   143→  onOpenChange: (open: boolean) => void;
+   144→  onSaved: () => void;
+   145→}) {
+   146→  const { toast } = useToast();
+   147→  const [lines, setLines] = useState<Record<string, EditLineState>>({});
+   148→  const [saving, setSaving] = useState(false);
+   149→
+   150→  useEffect(() => {
+   151→    if (meal && open) {
+   152→      const init: Record<string, EditLineState> = {};
+   153→      for (const f of meal.foods) init[f.id] = { qty: String(f.quantity), unit: f.unit, removed: false };
+   154→      setLines(init);
+   155→    }
+   156→  }, [meal, open]);
+   157→
+   158→  const changePreview = useMemo(() => {
+   159→    if (!meal) return { any: false, approxKcal: 0 };
+   160→    let approx = 0;
+   161→    let any = false;
+   162→    for (const f of meal.foods) {
+   163→      const st = lines[f.id];
+   164→      if (!st) continue;
+   165→      if (st.removed) {
+   166→        any = true;
+   167→        continue;
+   168→      }
+   169→      const q = Number(st.qty);
+   170→      if (!Number.isFinite(q) || q <= 0) continue;
+   171→      if (q !== f.quantity || st.unit !== f.unit) any = true;
+   172→      // Rough client preview only — the server recalculates exact values from the Food table.
+   173→      approx += (f.nutrition.calories ?? 0) * (q / f.quantity);
+   174→    }
+   175→    return { any, approxKcal: approx };
+   176→  }, [lines, meal]);
+   177→
+   178→  if (!meal) return null;
+   179→
+   180→  function setLine(id: string, patch: Partial<EditLineState>) {
+   181→    setLines((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
+   182→  }
+   183→
+   184→  async function handleSave() {
+   185→    if (!meal) return;
+   186→    const built: { lineId: string; remove?: true; quantity?: number; unit?: string }[] = [];
+   187→    let invalid = false;
+   188→    for (const f of meal.foods) {
+   189→      const st = lines[f.id];
+   190→      if (!st) continue;
+   191→      if (st.removed) {
+   192→        built.push({ lineId: f.id, remove: true });
+   193→        continue;
+   194→      }
+   195→      const q = Number(st.qty);
+   196→      if (!Number.isFinite(q) || q <= 0) {
+   197→        invalid = true;
+   198→        break;
+   199→      }
+   200→      if (q !== f.quantity || st.unit !== f.unit) built.push({ lineId: f.id, quantity: q, unit: st.unit });
+   201→    }
+   202→
+   203→    if (invalid) {
+   204→      toast({ title: "Check quantities", description: "Every kept line needs a quantity above 0.", variant: "destructive" });
+   205→      return;
+   206→    }
+   207→    if (built.length === 0) {
+   208→      toast({ title: "Nothing changed", description: "Adjust a quantity, switch a unit, or remove a line." });
+   209→      return;
+   210→    }
+   211→    const removedCount = built.filter((f) => f.remove).length;
+   212→    if (meal.foods.length - removedCount === 0) {
+   213→      toast({ title: "Cannot remove everything", description: "A meal needs at least one item — delete the meal instead.", variant: "destructive" });
+   214→      return;
+   215→    }
+   216→
+   217→    setSaving(true);
+   218→    try {
+   219→      const res = await api.editMeal(meal.id, { foods: built });
+   220→      const convNote = res.conversionNotes?.[0]?.note;
+   221→      toast({
+   222→        title: "Meal updated",
+   223→        description: convNote
+   224→          ? `${formatKcal(res.previousCalories)} → ${formatKcal(res.totals.calories)} · ${convNote}`
+   225→          : `${formatKcal(res.previousCalories)} → ${formatKcal(res.totals.calories)} · recalculated from the food database.`,
+   226→      });
+   227→      onOpenChange(false);
+   228→      onSaved();
+   229→    } catch (e) {
+   230→      toast({
+   231→        title: "Could not update meal",
+   232→        description: e instanceof Error ? e.message : "Please try again.",
+   233→        variant: "destructive",
+   234→      });
+   235→    } finally {
+   236→      setSaving(false);
+   237→    }
+   238→  }
+   239→
+   240→  const unitsFor = (current: string) => Array.from(new Set([current, ...EDIT_UNITS]));
+   241→
+   242→  return (
+   243→    <Dialog open={open} onOpenChange={(o) => !saving && onOpenChange(o)}>
+   244→      <DialogContent className="sm:max-w-md">
+   245→        <DialogHeader>
+   246→          <DialogTitle className="flex items-center gap-2">
+   247→            <Pencil className="h-4 w-4 text-primary" aria-hidden />
+   248→            Edit {mealLabel(meal.mealType).toLowerCase()}
+   249→          </DialogTitle>
+   250→          <DialogDescription>
+   251→            Adjust quantities or units — totals are recalculated server-side from the food database, never from this form.
+   252→          </DialogDescription>
+   253→        </DialogHeader>
+   254→
+   255→        <div className="max-h-[55vh] space-y-2 overflow-y-auto pr-1 [scrollbar-width:thin]">
+   256→          {meal.foods.map((f) => {
+   257→            const st = lines[f.id];
+   258→            if (!st) return null;
+   259→            const qNum = Number(st.qty);
+   260→            const approx = Number.isFinite(qNum) && qNum > 0 ? (f.nutrition.calories ?? 0) * (qNum / f.quantity) : 0;
+   261→            const changed = qNum !== f.quantity || st.unit !== f.unit;
+   262→            return (
+   263→              <div
+   264→                key={f.id}
+   265→                className={cn(
+   266→                  "rounded-lg border p-2.5 transition-opacity",
+   267→                  st.removed ? "border-destructive/30 bg-destructive/5 opacity-60" : "bg-muted/30",
+   268→                )}
+   269→              >
+   270→                <div className="flex items-center justify-between gap-2">
+   271→                  <p className="min-w-0 truncate text-sm font-medium">{f.name}</p>
+   272→                  <Button
+   273→                    variant="ghost"
+   274→                    size="sm"
+   275→                    className={cn("h-7 px-2 text-xs", st.removed ? "text-foreground" : "text-muted-foreground hover:text-destructive")}
+   276→                    onClick={() => setLine(f.id, { removed: !st.removed })}
+   277→                  >
+   278→                    {st.removed ? "Keep" : "Remove"}
+   279→                  </Button>
+   280→                </div>
+   281→                <div className="mt-2 flex items-end gap-2">
+   282→                  <div className="w-24 space-y-1">
+   283→                    <Label htmlFor={`qty-${f.id}`} className="text-[10px] uppercase tracking-wide text-muted-foreground">Quantity</Label>
+   284→                    <Input
+   285→                      id={`qty-${f.id}`}
+   286→                      type="number"
+   287→                      inputMode="decimal"
+   288→                      min={0.1}
+   289→                      max={100}
+   290→                      step={0.5}
+   291→                      value={st.qty}
+   292→                      disabled={st.removed}
+   293→                      onChange={(e) => setLine(f.id, { qty: e.target.value })}
+   294→                      className="h-8 tabular-nums"
+   295→                    />
+   296→                  </div>
+   297→                  <div className="flex-1 space-y-1">
+   298→                    <Label htmlFor={`unit-${f.id}`} className="text-[10px] uppercase tracking-wide text-muted-foreground">Unit</Label>
+   299→                    <Select value={st.unit} onValueChange={(v) => setLine(f.id, { unit: v })} disabled={st.removed}>
+   300→                      <SelectTrigger id={`unit-${f.id}`} className="h-8">
+   301→                        <SelectValue />
+   302→                      </SelectTrigger>
+   303→                      <SelectContent>
+   304→                        {unitsFor(f.unit).map((u) => (
+   305→                          <SelectItem key={u} value={u}>{u}</SelectItem>
+   306→                        ))}
+   307→                      </SelectContent>
+   308→                    </Select>
+   309→                  </div>
+   310→                  <div className="flex flex-col items-end gap-1 pb-0.5">
+   311→                    <p className={cn("text-xs tabular-nums", changed ? "font-semibold text-primary" : "text-muted-foreground")}>
+   312→                      ≈{Math.round(approx)} kcal
+   313→                    </p>
+   314→                    {!st.removed && <PortionDots quantity={Number.isFinite(qNum) ? qNum : 0} unit={st.unit} />}
+   315→                  </div>
+   316→                </div>
+   317→                {changed && !st.removed && (
+   318→                  <p className="mt-1.5 text-[10px] text-muted-foreground">
+   319→                    Was {f.quantity} {f.unit} · {formatKcal(f.nutrition.calories ?? 0)} — preview is approximate, server recalculates.
+   320→                  </p>
+   321→                )}
+   322→              </div>
+   323→            );
+   324→          })}
+   325→        </div>
+   326→
+   327→        <div className="rounded-lg border border-primary/25 bg-primary/5 px-3 py-2 text-xs">
+   328→          <span className="text-muted-foreground">New meal total (preview): </span>
+   329→          <span className="font-semibold tabular-nums">≈{Math.round(changePreview.approxKcal)} kcal</span>
+   330→          <span className="text-muted-foreground"> · exact values computed on save</span>
+   331→        </div>
+   332→
+   333→        <DialogFooter>
+   334→          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>Cancel</Button>
+   335→          <Button onClick={() => void handleSave()} disabled={saving || !changePreview.any}>
+   336→            {saving ? (
+   337→              <>
+   338→                <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> Recalculating…
+   339→              </>
+   340→            ) : (
+   341→              "Save changes"
+   342→            )}
+   343→          </Button>
+   344→        </DialogFooter>
+   345→      </DialogContent>
+   346→    </Dialog>
+   347→  );
+   348→}
+   349→
+   350→export function RecentMeals() {
+   351→  const dataVersion = useNutriStore((s) => s.dataVersion);
+   352→  const bumpData = useNutriStore((s) => s.bumpData);
+   353→  const healthConditions = useNutriStore((s) => s.profileBrief?.healthConditions ?? []);
+   354→  const { toast } = useToast();
+   355→  const [data, setData] = useState<RecentMealsResponse | null>(null);
+   356→  const [error, setError] = useState<string | null>(null);
+   357→  const [pendingDelete, setPendingDelete] = useState<MealDetail | null>(null);
+   358→  const [deleting, setDeleting] = useState(false);
+   359→  const [editing, setEditing] = useState<MealDetail | null>(null);
+   360→  const [pendingRelog, setPendingRelog] = useState<MealDetail | null>(null);
+   361→  const [relogging, setRelogging] = useState(false);
+   362→  const [favSourceMealIds, setFavSourceMealIds] = useState<Set<string>>(new Set());
+   363→  const [favoritingId, setFavoritingId] = useState<string | null>(null);
+   364→
+   365→  useEffect(() => {
+   366→    let alive = true;
+   367→    api
+   368→      .recentMeals()
+   369→      .then((res) => alive && (setData(res), setError(null)))
+   370→      .catch(() => alive && setError("Could not load your meals."));
+   371→    // Favorites (only their sourceMealIds are needed here) — non-fatal on failure.
+   372→    api
+   373→      .favorites()
+   374→      .then((res) => {
+   375→        if (!alive) return;
+   376→        setFavSourceMealIds(new Set(res.favorites.map((f) => f.sourceMealId).filter((v): v is string => v !== null)));
+   377→      })
+   378→      .catch(() => undefined);
+   379→    return () => {
+   380→      alive = false;
+   381→    };
+   382→  }, [dataVersion]);
+   383→
+   384→  async function handleFavorite(m: MealDetail) {
+   385→    if (favSourceMealIds.has(m.id)) {
+   386→      toast({ title: "Already in favorites", description: "Use the ⭐ chips in the food logger to quick-log or remove it." });
+   387→      return;
+   388→    }
+   389→    setFavoritingId(m.id);
+   390→    try {
+   391→      const res = await api.createFavorite(m.id);
+   392→      toast({ title: "Saved to favorites", description: `${res.favorite.name} is now one tap away in the food logger.` });
+   393→      setFavSourceMealIds((prev) => new Set(prev).add(m.id));
+   394→      // Bump so the logger's FavoritesBar refetches and shows the new chip.
+   395→      bumpData();
+   396→    } catch (e) {
+   397→      toast({
+   398→        title: "Could not save favorite",
+   399→        description: e instanceof Error ? e.message : "Please try again.",
+   400→        variant: "destructive",
+   401→      });
+   402→    } finally {
+   403→      setFavoritingId(null);
+   404→    }
+   405→  }
+   406→
+   407→  async function handleDelete() {
+   408→    if (!pendingDelete) return;
+   409→    setDeleting(true);
+   410→    try {
+   411→      const res = await api.deleteMeal(pendingDelete.id);
+   412→      toast({
+   413→        title: "Meal deleted",
+   414→        description: `${res.removedFoods} item${res.removedFoods === 1 ? "" : "s"} · ${formatKcal(res.removedCalories)} removed from today's totals.`,
+   415→      });
+   416→      setPendingDelete(null);
+   417→      bumpData();
+   418→    } catch (e) {
+   419→      toast({
+   420→        title: "Could not delete meal",
+   421→        description: e instanceof Error ? e.message : "Please try again.",
+   422→        variant: "destructive",
+   423→      });
+   424→    } finally {
+   425→      setDeleting(false);
+   426→    }
+   427→  }
+   428→
+   429→  async function handleRelog() {
+   430→    if (!pendingRelog) return;
+   431→    setRelogging(true);
+   432→    try {
+   433→      const res = await api.relogMeal(pendingRelog.id);
+   434→      toast({
+   435→        title: "Logged again",
+   436→        description: `${res.totals.calories} kcal · recalculated fresh from the food database.`,
+   437→      });
+   438→      setPendingRelog(null);
+   439→      bumpData();
+   440→    } catch (e) {
+   441→      toast({
+   442→        title: "Could not log this meal again",
+   443→        description: e instanceof Error ? e.message : "Please try again.",
+   444→        variant: "destructive",
+   445→      });
+   446→    } finally {
+   447→      setRelogging(false);
+   448→    }
+   449→  }
+   450→
+   451→  return (
+   452→    <Card className="transition-shadow duration-300 hover:shadow-md hover:shadow-primary/5">
+   453→      <CardHeader>
+   454→        <CardTitle className="flex items-center gap-2">
+   455→          <History className="h-5 w-5 text-primary" aria-hidden />
+   456→          Recent meals
+   457→        </CardTitle>
+   458→        <CardDescription>
+   459→          Your last logged meals with server-verified totals. Expand for the full nutrient panel, or edit and delete a mistaken entry.
+   460→        </CardDescription>
+   461→      </CardHeader>
+   462→      <CardContent>
+   463→        {error && <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
+   464→
+   465→        {!data && !error && (
+   466→          <div className="space-y-2">
+   467→            <Skeleton className="h-16 w-full" />
+   468→            <Skeleton className="h-16 w-full" />
+   469→            <Skeleton className="h-16 w-full" />
+   470→          </div>
+   471→        )}
+   472→
+   473→        {data && data.count === 0 && (
+   474→          <p className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
+   475→            Nothing logged yet — log your first meal above and it will appear here.
+   476→          </p>
+   477→        )}
+   478→
+   479→        {data && data.count > 0 && (
+   480→          <ul className="max-h-96 space-y-2 overflow-y-auto pr-1 [scrollbar-width:thin]">
+   481→            {data.meals.map((m) => (
+   482→              <li key={m.id}>
+   483→                <Collapsible>
+   484→                  <div className="group/meal relative overflow-hidden rounded-xl border transition-colors hover:border-primary/40 hover:bg-muted/30 data-[state=open]:border-primary/40">
+   485→                    {/* Slot accent stripe */}
+   486→                    <span
+   487→                      aria-hidden
+   488→                      className={cn(
+   489→                        "absolute inset-y-0 left-0 w-1 transition-opacity",
+   490→                        MEAL_TYPE_ACCENT[m.mealType] ?? "bg-muted-foreground/30",
+   491→                      )}
+   492→                    />
+   493→                    <CollapsibleTrigger className="flex w-full items-center gap-3 rounded-xl p-3 pl-4 pr-28 text-left transition-colors hover:bg-muted/50">
+   494→                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-base transition-transform group-hover/meal:scale-105" aria-hidden>
+   495→                        {MEAL_TYPE_ICON[m.mealType] ?? "🍽️"}
+   496→                      </span>
+   497→                      <span className="min-w-0 flex-1">
+   498→                        <span className="flex flex-wrap items-center gap-2">
+   499→                          <span className="text-sm font-semibold">{mealLabel(m.mealType)}</span>
+   500→                          <span className="text-xs text-muted-foreground">{format(new Date(m.eatenAt), "d MMM, HH:mm")}</span>
+   501→                          <ComplianceBadge compliance={m.compliance} conditions={healthConditions} />
+   502→                          {m.source === "recommendation" && (
+   503→                            <Badge variant="secondary" className="text-[9px] uppercase tracking-wide">
+   504→                              from rec
+   505→                            </Badge>
+   506→                          )}
+   507→                          {m.source === "image" && (
+   508→                            <Badge variant="secondary" className="gap-0.5 text-[9px] uppercase tracking-wide">
+   509→                              <Camera className="h-2.5 w-2.5" aria-hidden /> photo
+   510→                            </Badge>
+   511→                          )}
+   512→                          {m.source === "relog" && (
+   513→                            <Badge variant="secondary" className="gap-0.5 text-[9px] uppercase tracking-wide">
+   514→                              <Repeat className="h-2.5 w-2.5" aria-hidden /> again
+   515→                            </Badge>
+   516→                          )}
+   517→                          {m.source === "favorite" && (
+   518→                            <Badge variant="secondary" className="gap-0.5 text-[9px] uppercase tracking-wide">
+   519→                              <Star className="h-2.5 w-2.5" aria-hidden /> fav
+   520→                            </Badge>
+   521→                          )}
+   522→                        </span>
+   523→                        <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+   524→                          {m.foods.map((f) => f.name).join(" · ")}
+   525→                        </span>
+   526→                      </span>
+   527→                      <span className="shrink-0 text-right">
+   528→                        <span className="block text-sm font-semibold tabular-nums">{formatKcal(m.totals.calories)}</span>
+   529→                        <span className="block text-[10px] text-muted-foreground tabular-nums">
+   530→                          P {formatGrams(m.totals.protein)} · C {formatGrams(m.totals.carbohydrates)} · F {formatGrams(m.totals.fat)}
+   531→                        </span>
+   532→                      </span>
+   533→                      <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" aria-hidden />
+   534→                    </CollapsibleTrigger>
+   535→
+   536→                    {/* Favorite + edit + delete — overlay the row's right edge. Always visible on touch-sized
+   537→                        screens (no hover), hover-revealed from sm up. */}
+   538→                    <div className="absolute right-2 top-2 flex gap-1 opacity-100 transition-all focus-within:opacity-100 sm:opacity-0 sm:group-hover/meal:opacity-100">
+   539→                      <Button
+   540→                        variant="ghost"
+   541→                        size="icon"
+   542→                        aria-label={favSourceMealIds.has(m.id) ? `Saved in favorites` : `Save ${mealLabel(m.mealType)} logged at ${format(new Date(m.eatenAt), "HH:mm")} to favorites`}
+   543→                        aria-pressed={favSourceMealIds.has(m.id)}
+   544→                        title={favSourceMealIds.has(m.id) ? "Saved in favorites" : "Save to favorites"}
+   545→                        className={cn(
+   546→                          "h-7 w-7 transition-all",
+   547→                          favSourceMealIds.has(m.id)
+   548→                            ? "text-amber-500"
+   549→                            : "text-muted-foreground/50 hover:bg-amber-500/10 hover:text-amber-500",
+   550→                        )}
+   551→                        onClick={() => void handleFavorite(m)}
+   552→                        disabled={favoritingId === m.id}
+   553→                      >
+   554→                        {favoritingId === m.id ? (
+   555→                          <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+   556→                        ) : (
+   557→                          <Star className={cn("h-3.5 w-3.5", favSourceMealIds.has(m.id) && "fill-amber-500")} aria-hidden />
+   558→                        )}
+   559→                      </Button>
+   560→                      <Button
+   561→                        variant="ghost"
+   562→                        size="icon"
+   563→                        aria-label={`Edit ${mealLabel(m.mealType)} logged at ${format(new Date(m.eatenAt), "HH:mm")}`}
+   564→                        className="h-7 w-7 text-muted-foreground/50 transition-all hover:bg-primary/10 hover:text-primary"
+   565→                        onClick={() => setEditing(m)}
+   566→                      >
+   567→                        <Pencil className="h-3.5 w-3.5" aria-hidden />
+   568→                      </Button>
+   569→                      <Button
+   570→                        variant="ghost"
+   571→                        size="icon"
+   572→                        aria-label={`Delete ${mealLabel(m.mealType)} logged at ${format(new Date(m.eatenAt), "HH:mm")}`}
+   573→                        className="h-7 w-7 text-muted-foreground/50 transition-all hover:bg-destructive/10 hover:text-destructive"
+   574→                        onClick={() => setPendingDelete(m)}
+   575→                      >
+   576→                        <Trash2 className="h-3.5 w-3.5" aria-hidden />
+   577→                      </Button>
+   578→                    </div>
+   579→
+   580→                    <CollapsibleContent>
+   581→                      <div className="mx-3 mb-3 mt-1 space-y-2.5 rounded-lg border bg-muted/30 p-3">
+   582→                        {/* Compliance violations (if any) */}
+   583→                        {m.compliance && m.compliance.violations.length > 0 && (
+   584→                          <ul className="space-y-1">
+   585→                            {m.compliance.violations.map((v, i) => (
+   586→                              <li key={i} className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-800 dark:text-amber-300">
+   587→                                ⚠ {v.condition} · {v.message} <span className="text-amber-700/70 dark:text-amber-400/70">({v.evidenceSource})</span>
+   588→                              </li>
+   589→                            ))}
+   590→                          </ul>
+   591→                        )}
+   592→
+   593→                        {/* Per-food lines */}
+   594→                        <ul className="space-y-1">
+   595→                          {m.foods.map((f, i) => (
+   596→                            <li key={i} className="flex items-center justify-between gap-2 text-xs">
+   597→                              <span className="min-w-0 truncate">
+   598→                                <span className="font-medium">{f.name}</span>
+   599→                                <span className="text-muted-foreground"> · {f.quantity} {f.unit}</span>
+   600→                                {f.preparation && <span className="capitalize text-muted-foreground"> · {f.preparation}</span>}
+   601→                                {f.quantitySource === "estimated" && (
+   602→                                  <Badge variant="outline" className="ml-1.5 px-1 py-0 text-[9px] uppercase tracking-wide text-muted-foreground">
+   603→                                    est. qty
+   604→                                  </Badge>
+   605→                                )}
+   606→                              </span>
+   607→                              <span className="shrink-0 tabular-nums text-muted-foreground">
+   608→                                {formatKcal(f.nutrition.calories)} · P {formatGrams(f.nutrition.protein)}
+   609→                              </span>
+   610→                            </li>
+   611→                          ))}
+   612→                        </ul>
+   613→
+   614→                        {/* One-tap re-log — server recomputes everything from the Food table */}
+   615→                        <div className="flex justify-end">
+   616→                          <Button
+   617→                            variant="outline"
+   618→                            size="sm"
+   619→                            className="h-7 gap-1.5 text-[11px]"
+   620→                            onClick={() => setPendingRelog(m)}
+   621→                          >
+   622→                            <Repeat className="h-3 w-3 text-primary" aria-hidden />
+   623→                            Log this again
+   624→                          </Button>
+   625→                        </div>
+   626→
+   627→                        {/* Full nutrient panel */}
+   628→                        <div>
+   629→                          <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+   630→                            Full nutrient panel — meal totals
+   631→                          </p>
+   632→                          <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3 md:grid-cols-4">
+   633→                            {NUTRIENT_ROWS.map((row) => {
+   634→                              const v = m.totals[row.key] ?? 0;
+   635→                              return (
+   636→                                <div
+   637→                                  key={row.key}
+   638→                                  className={`rounded-md border px-2 py-1.5 ${
+   639→                                    row.tone === "watch" && v > 0
+   640→                                      ? "border-amber-500/30 bg-amber-500/5"
+   641→                                      : "border-border/60 bg-background/60"
+   642→                                  }`}
+   643→                                  title={row.tone === "watch" ? "Keep an eye on this nutrient for your conditions" : undefined}
+   644→                                >
+   645→                                  <p className="text-[9px] uppercase tracking-wide text-muted-foreground">{row.label}</p>
+   646→                                  <p className={`text-xs font-semibold tabular-nums ${row.tone === "watch" && v > 0 ? "text-amber-700 dark:text-amber-400" : ""}`}>
+   647→                                    {formatValue(v, row.decimals)}
+   648→                                    <span className="ml-0.5 font-normal text-muted-foreground">{row.unit}</span>
+   649→                                  </p>
+   650→                                </div>
+   651→                              );
+   652→                            })}
+   653→                          </div>
+   654→                        </div>
+   655→                      </div>
+   656→                    </CollapsibleContent>
+   657→                  </div>
+   658→                </Collapsible>
+   659→              </li>
+   660→            ))}
+   661→          </ul>
+   662→        )}
+   663→      </CardContent>
+   664→
+   665→      {/* Edit dialog */}
+   666→      <EditMealDialog
+   667→        meal={editing}
+   668→        open={editing !== null}
+   669→        onOpenChange={(o) => !o && setEditing(null)}
+   670→        onSaved={() => {
+   671→          setEditing(null);
+   672→          bumpData();
+   673→        }}
+   674→      />
+   675→
+   676→      {/* Re-log confirmation */}
+   677→      <AlertDialog open={pendingRelog !== null} onOpenChange={(open) => !open && setPendingRelog(null)}>
+   678→        <AlertDialogContent>
+   679→          <AlertDialogHeader>
+   680→            <AlertDialogTitle>Log this meal again?</AlertDialogTitle>
+   681→            <AlertDialogDescription>
+   682→              {pendingRelog && (
+   683→                <>
+   684→                  Adds a new entry with the same items — {pendingRelog.foods.map((f) => f.name).join(", ")} (
+   685→                  {formatKcal(pendingRelog.totals.calories)}). All values are recalculated fresh from the food database.
+   686→                </>
+   687→              )}
+   688→            </AlertDialogDescription>
+   689→          </AlertDialogHeader>
+   690→          <AlertDialogFooter>
+   691→            <AlertDialogCancel disabled={relogging}>Cancel</AlertDialogCancel>
+   692→            <AlertDialogAction
+   693→              onClick={(e) => {
+   694→                e.preventDefault();
+   695→                void handleRelog();
+   696→              }}
+   697→              disabled={relogging}
+   698→            >
+   699→              {relogging ? (
+   700→                <>
+   701→                  <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
+   702→                  Logging…
+   703→                </>
+   704→              ) : (
+   705→                "Log it again"
+   706→              )}
+   707→            </AlertDialogAction>
+   708→          </AlertDialogFooter>
+   709→        </AlertDialogContent>
+   710→      </AlertDialog>
+   711→
+   712→      {/* Delete confirmation */}
+   713→      <AlertDialog open={pendingDelete !== null} onOpenChange={(open) => !open && setPendingDelete(null)}>
+   714→        <AlertDialogContent>
+   715→          <AlertDialogHeader>
+   716→            <AlertDialogTitle>Delete this meal?</AlertDialogTitle>
+   717→            <AlertDialogDescription>
+   718→              {pendingDelete && (
+   719→                <>
+   720→                  {mealLabel(pendingDelete.mealType)} logged at {format(new Date(pendingDelete.eatenAt), "d MMM, HH:mm")} —{" "}
+   721→                  {pendingDelete.foods.map((f) => f.name).join(", ")} ({formatKcal(pendingDelete.totals.calories)}). This
+   722→                  cannot be undone and today&apos;s totals will be recalculated.
+   723→                </>
+   724→              )}
+   725→            </AlertDialogDescription>
+   726→          </AlertDialogHeader>
+   727→          <AlertDialogFooter>
+   728→            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+   729→            <AlertDialogAction
+   730→              onClick={(e) => {
+   731→                e.preventDefault();
+   732→                void handleDelete();
+   733→              }}
+   734→              disabled={deleting}
+   735→              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+   736→            >
+   737→              {deleting ? (
+   738→                <>
+   739→                  <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
+   740→                  Deleting…
+   741→                </>
+   742→              ) : (
+   743→                "Delete meal"
+   744→              )}
+   745→            </AlertDialogAction>
+   746→          </AlertDialogFooter>
+   747→        </AlertDialogContent>
+   748→      </AlertDialog>
+   749→    </Card>
+   750→  );
+   751→}
+   752→

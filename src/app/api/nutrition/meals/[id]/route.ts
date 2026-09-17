@@ -30,6 +30,8 @@ interface EditLineBody {
 interface EditMealBody {
   foods?: EditLineBody[];
   notes?: string | null;
+  /** User-authored reflection ("why I ate / how I felt") — display only, never used for nutrition math. */
+  userNotes?: string | null;
 }
 
 interface ConversionNote {
@@ -106,8 +108,17 @@ export const PATCH = withApi("meal_edit", async ({ req }: { req: NextRequest }) 
   }
 
   const edits = Array.isArray(body.foods) ? body.foods.slice(0, 20) : [];
-  if (edits.length === 0 && body.notes === undefined) {
+  if (edits.length === 0 && body.notes === undefined && body.userNotes === undefined) {
     throw new AppError("VALIDATION_FAILED", "Nothing to update — provide food edits or notes.");
+  }
+  // userNotes: 0..500 chars after trim; empty string clears the note (null in DB).
+  let userNotes: string | null | undefined;
+  if (body.userNotes !== undefined) {
+    const trimmed = String(body.userNotes ?? "").trim();
+    if (trimmed.length > 500) {
+      throw new AppError("VALIDATION_FAILED", "Notes are limited to 500 characters.");
+    }
+    userNotes = trimmed.length === 0 ? null : trimmed;
   }
 
   const updated = await db.$transaction(async (tx) => {
@@ -234,6 +245,7 @@ export const PATCH = withApi("meal_edit", async ({ req }: { req: NextRequest }) 
         totalCholesterol: totals.cholesterol,
         totalSaturatedFat: totals.saturatedFat,
         notes: body.notes === undefined ? meal.notes : body.notes === null ? null : String(body.notes).slice(0, 500),
+        userNotes: userNotes === undefined ? meal.userNotes : userNotes,
       },
       include: { foods: true },
     });
@@ -261,6 +273,7 @@ export const PATCH = withApi("meal_edit", async ({ req }: { req: NextRequest }) 
     previousCalories: round(updated.previousCalories, 1),
     totals: safeTotals,
     foodsCount: updated.meal.foods.length,
+    userNotes: updated.meal.userNotes ?? null,
     conversionNotes: updated.conversionNotes,
     recommendationInvalidated: true,
   });

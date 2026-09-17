@@ -131,9 +131,37 @@
   }
 }
 
+/* Confetti burst for milestone unlocks — particles drift sideways via
+   the --confetti-drift custom property set inline per particle. */
+@keyframes confetti-fall {
+  0% {
+    transform: translate3d(0, -16px, 0) rotate(0deg);
+    opacity: 0.95;
+  }
+  85% {
+    opacity: 0.85;
+  }
+  100% {
+    transform: translate3d(var(--confetti-drift, 0px), 105vh, 0) rotate(620deg);
+    opacity: 0;
+  }
+}
+
+/* Attention pulse on the just-unlocked milestone chip (runs 3x, then stops). */
+@keyframes unlock-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.045);
+  }
+}
+
 /* Respect users who prefer reduced motion. */
 @media (prefers-reduced-motion: reduce) {
-  [class*="animate-"] {
+  [class*="animate-"],
+  [style*="confetti-fall"] {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
   }

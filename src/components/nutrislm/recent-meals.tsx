@@ -7,7 +7,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
-import { CheckCircle2, ChevronDown, HelpCircle, History, Loader2, Pencil, Repeat, Star, Trash2, TriangleAlert, Camera } from "lucide-react";
+import { CheckCircle2, ChevronDown, HelpCircle, History, Loader2, NotebookPen, Pencil, Repeat, Star, Trash2, TriangleAlert, Camera } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
@@ -47,6 +48,19 @@ const NUTRIENT_ROWS: { label: string; key: keyof MealDetail["totals"]; unit: str
 
 /** Common household units offered when editing a line (merged with the line's current unit). */
 const EDIT_UNITS = ["piece", "cup", "katori", "bowl", "glass", "serving", "tsp", "tbsp", "slice", "g", "ml", "medium", "small", "large"];
+
+/**
+ * One-tap mood chips for the meal reflection note — tapping appends a short,
+ * honest phrase to the note. Pure text (display only), never feeds nutrition math.
+ */
+const MOOD_CHIPS: { emoji: string; label: string; phrase: string }[] = [
+  { emoji: "😊", label: "Enjoyed", phrase: "Enjoyed it" },
+  { emoji: "😋", label: "Craving", phrase: "Was craving this" },
+  { emoji: "😐", label: "Just okay", phrase: "Just okay" },
+  { emoji: "🥱", label: "Habit", phrase: "Ate out of habit" },
+  { emoji: "😰", label: "Stressed", phrase: "Stressful day" },
+  { emoji: "💪", label: "Fuel", phrase: "Post-workout fuel" },
+];
 
 /** A glyph hint per household unit so quantities feel tangible at a glance. */
 const UNIT_GLYPH: Record<string, string> = {
@@ -145,6 +159,7 @@ function EditMealDialog({
 }) {
   const { toast } = useToast();
   const [lines, setLines] = useState<Record<string, EditLineState>>({});
+  const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -152,11 +167,12 @@ function EditMealDialog({
       const init: Record<string, EditLineState> = {};
       for (const f of meal.foods) init[f.id] = { qty: String(f.quantity), unit: f.unit, removed: false };
       setLines(init);
+      setNote(meal.userNotes ?? "");
     }
   }, [meal, open]);
 
   const changePreview = useMemo(() => {
-    if (!meal) return { any: false, approxKcal: 0 };
+    if (!meal) return { any: false, approxKcal: 0, noteChanged: false, foodChanged: false };
     let approx = 0;
     let any = false;
     for (const f of meal.foods) {
@@ -172,8 +188,9 @@ function EditMealDialog({
       // Rough client preview only — the server recalculates exact values from the Food table.
       approx += (f.nutrition.calories ?? 0) * (q / f.quantity);
     }
-    return { any, approxKcal: approx };
-  }, [lines, meal]);
+    const noteChanged = (meal.userNotes ?? "") !== note;
+    return { any, approxKcal: approx, noteChanged, foodChanged: any };
+  }, [lines, meal, note]);
 
   if (!meal) return null;
 
@@ -204,8 +221,8 @@ function EditMealDialog({
       toast({ title: "Check quantities", description: "Every kept line needs a quantity above 0.", variant: "destructive" });
       return;
     }
-    if (built.length === 0) {
-      toast({ title: "Nothing changed", description: "Adjust a quantity, switch a unit, or remove a line." });
+    if (built.length === 0 && !changePreview.noteChanged) {
+      toast({ title: "Nothing changed", description: "Adjust a quantity, switch a unit, remove a line, or add a note." });
       return;
     }
     const removedCount = built.filter((f) => f.remove).length;
@@ -216,13 +233,21 @@ function EditMealDialog({
 
     setSaving(true);
     try {
-      const res = await api.editMeal(meal.id, { foods: built });
+      const res = await api.editMeal(meal.id, {
+        foods: built,
+        userNotes: changePreview.noteChanged ? note.trim().slice(0, 500) || null : undefined,
+      });
       const convNote = res.conversionNotes?.[0]?.note;
+      const kcalPart = changePreview.foodChanged
+        ? `${formatKcal(res.previousCalories)} → ${formatKcal(res.totals.calories)} · `
+        : "";
       toast({
-        title: "Meal updated",
-        description: convNote
-          ? `${formatKcal(res.previousCalories)} → ${formatKcal(res.totals.calories)} · ${convNote}`
-          : `${formatKcal(res.previousCalories)} → ${formatKcal(res.totals.calories)} · recalculated from the food database.`,
+        title: changePreview.foodChanged ? "Meal updated" : "Note saved",
+        description: `${kcalPart}${
+          convNote ? convNote : changePreview.foodChanged ? "recalculated from the food database." : ""
+        }${changePreview.foodChanged && changePreview.noteChanged ? " · " : ""}${
+          changePreview.noteChanged ? "note attached to this meal." : ""
+        }`.trim() || "Saved.",
       });
       onOpenChange(false);
       onSaved();
@@ -322,6 +347,56 @@ function EditMealDialog({
               </div>
             );
           })}
+
+          {/* Meal reflection note — user-authored, display only, never feeds nutrition math. */}
+          <div className="rounded-lg border border-teal-500/25 bg-teal-500/5 p-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <Label htmlFor="meal-note" className="flex items-center gap-1.5 text-[11px] font-semibold text-teal-700 dark:text-teal-300">
+                <NotebookPen className="h-3.5 w-3.5" aria-hidden />
+                How did you feel?
+              </Label>
+              <span className="text-[10px] tabular-nums text-muted-foreground">{note.length}/500</span>
+            </div>
+            <Textarea
+              id="meal-note"
+              value={note}
+              onChange={(e) => setNote(e.target.value.slice(0, 500))}
+              placeholder="Why did you eat this / how did it sit? (optional — stored as plain text)"
+              rows={2}
+              className="mt-1.5 min-h-[52px] resize-none border-teal-500/20 bg-background/70 text-xs placeholder:text-muted-foreground/60 focus-visible:ring-teal-500/40"
+            />
+            <div className="mt-1.5 flex flex-wrap gap-1" role="group" aria-label="Quick mood phrases">
+              {MOOD_CHIPS.map((chip) => {
+                const active = note.includes(chip.phrase);
+                return (
+                  <button
+                    key={chip.label}
+                    type="button"
+                    aria-pressed={active}
+                    title={chip.phrase}
+                    onClick={() =>
+                      setNote((prev) => {
+                        if (prev.includes(chip.phrase)) {
+                          return prev
+                            .replace(new RegExp(`(^|[,，、]\\s*)${chip.phrase}([,，、]\\s*|$)`, "g"), "$1")
+                            .replace(/^[,，、\s]+|[,，、\s]+$/g, "");
+                        }
+                        return prev.trim().length ? `${prev.replace(/\s+$/, "")}, ${chip.phrase}`.slice(0, 500) : chip.phrase;
+                      })
+                    }
+                    className={cn(
+                      "rounded-full border px-2 py-0.5 text-[10px] transition-all active:scale-95",
+                      active
+                        ? "border-teal-500/50 bg-teal-500/15 text-teal-700 dark:text-teal-300"
+                        : "border-border/70 bg-background/60 text-muted-foreground hover:border-teal-500/40 hover:text-foreground",
+                    )}
+                  >
+                    <span aria-hidden>{chip.emoji}</span> {chip.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </div>
 
         <div className="rounded-lg border border-primary/25 bg-primary/5 px-3 py-2 text-xs">
@@ -332,10 +407,14 @@ function EditMealDialog({
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>Cancel</Button>
-          <Button onClick={() => void handleSave()} disabled={saving || !changePreview.any}>
+          <Button
+            onClick={() => void handleSave()}
+            disabled={saving || (!changePreview.foodChanged && !changePreview.noteChanged)}
+            className="transition-all active:scale-[0.98]"
+          >
             {saving ? (
               <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> Recalculating…
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> Saving…
               </>
             ) : (
               "Save changes"
@@ -519,6 +598,15 @@ export function RecentMeals() {
                               <Star className="h-2.5 w-2.5" aria-hidden /> fav
                             </Badge>
                           )}
+                          {m.userNotes && (
+                            <Badge
+                              variant="secondary"
+                              className="gap-0.5 border-teal-500/30 bg-teal-500/10 text-[9px] uppercase tracking-wide text-teal-700 dark:text-teal-300"
+                              title={m.userNotes}
+                            >
+                              <NotebookPen className="h-2.5 w-2.5" aria-hidden /> note
+                            </Badge>
+                          )}
                         </span>
                         <span className="mt-0.5 block truncate text-xs text-muted-foreground">
                           {m.foods.map((f) => f.name).join(" · ")}
@@ -579,6 +667,14 @@ export function RecentMeals() {
 
                     <CollapsibleContent>
                       <div className="mx-3 mb-3 mt-1 space-y-2.5 rounded-lg border bg-muted/30 p-3">
+                        {/* User reflection note (if any) */}
+                        {m.userNotes && (
+                          <div className="flex items-start gap-2 rounded-md border border-teal-500/25 bg-teal-500/5 px-2 py-1.5">
+                            <NotebookPen className="mt-0.5 h-3 w-3 shrink-0 text-teal-600 dark:text-teal-400" aria-hidden />
+                            <p className="text-[11px] italic leading-relaxed text-foreground/80">“{m.userNotes}”</p>
+                          </div>
+                        )}
+
                         {/* Compliance violations (if any) */}
                         {m.compliance && m.compliance.violations.length > 0 && (
                           <ul className="space-y-1">

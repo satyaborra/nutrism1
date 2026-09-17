@@ -9,7 +9,7 @@
 import { useEffect, useState } from "react";
 import { format, parseISO } from "date-fns";
 import {
-  ArrowDownRight, ArrowUpRight, BadgeCheck, BookOpen, CalendarDays, Copy, Droplets,
+  ArrowDownRight, ArrowUpRight, BadgeCheck, BookOpen, CalendarDays, Copy, Download, Droplets,
   Flame, Printer, Scale, Trophy, UtensilsCrossed,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -158,6 +158,24 @@ export function WeeklyDigestDialog() {
     if (!data) return;
     const ok = printDigest(data, overall);
     if (!ok) toast({ title: "Pop-up blocked", description: "Allow pop-ups for this site to print the digest.", variant: "destructive" });
+  }
+
+  function handleDownload() {
+    if (!data) return;
+    try {
+      const blob = new Blob([buildDigestText(data, overall)], { type: "text/plain;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `nutrislm-weekly-digest-${data.weekOf}.txt`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast({ title: "Digest downloaded", description: "Saved as a .txt file you can keep or share." });
+    } catch {
+      toast({ title: "Could not download", description: "Your browser blocked the file download.", variant: "destructive" });
+    }
   }
 
   const overall = data
@@ -347,12 +365,16 @@ export function WeeklyDigestDialog() {
         )}
 
         {data && (
-          <div className="flex items-center justify-between gap-2 border-t pt-3">
+          <div className="flex flex-col gap-2 border-t pt-3 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
             <p className="text-[10px] text-muted-foreground">Share or archive this report — numbers are reproducible.</p>
-            <div className="flex shrink-0 items-center gap-1.5">
+            <div className="flex shrink-0 items-center justify-end gap-1.5">
               <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={() => void handleCopy()}>
                 <Copy className={cn("h-3.5 w-3.5", copied && "text-primary")} aria-hidden />
                 {copied ? "Copied" : "Copy as text"}
+              </Button>
+              <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={handleDownload}>
+                <Download className="h-3.5 w-3.5" aria-hidden />
+                .txt
               </Button>
               <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={handlePrint}>
                 <Printer className="h-3.5 w-3.5" aria-hidden />
