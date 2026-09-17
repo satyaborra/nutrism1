@@ -334,6 +334,7 @@ export interface NextMealResponse {
   explanation: string;
   keyFactors: string[];
   evidence: EvidenceChunk[];
+  feedbackSignal?: { down: number; up: number } | null;
   contextSummary: {
     conditions: string[];
     dietaryPreference: string;
@@ -399,12 +400,20 @@ export interface MealEditLineInput {
   remove?: boolean;
 }
 
+export interface MealEditConversionNote {
+  lineId: string;
+  food: string;
+  note: string;
+  exact: boolean;
+}
+
 export interface MealEditResponse {
   ok: boolean;
   editedMealId: string;
   previousCalories: number;
   totals: NutritionValues;
   foodsCount: number;
+  conversionNotes: MealEditConversionNote[];
   recommendationInvalidated: boolean;
 }
 
@@ -451,6 +460,24 @@ export const FEEDBACK_REASON_LABELS: Record<FeedbackReason, string> = {
 };
 
 // ---------- Health ----------
+
+export interface CoachChatMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  createdAt: string;
+}
+
+export interface CoachChatThreadResponse {
+  threadId: string | null;
+  messages: CoachChatMessage[];
+}
+
+export interface CoachChatSendResponse {
+  threadId: string;
+  reply: CoachChatMessage;
+  engineSource: "ai" | "deterministic_fallback";
+}
 
 export interface HealthResponse {
   status: string;

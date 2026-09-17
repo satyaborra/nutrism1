@@ -173,9 +173,12 @@ function EditMealDialog({
     setSaving(true);
     try {
       const res = await api.editMeal(meal.id, { foods: built });
+      const convNote = res.conversionNotes?.[0]?.note;
       toast({
         title: "Meal updated",
-        description: `${formatKcal(res.previousCalories)} → ${formatKcal(res.totals.calories)} · recalculated from the food database.`,
+        description: convNote
+          ? `${formatKcal(res.previousCalories)} → ${formatKcal(res.totals.calories)} · ${convNote}`
+          : `${formatKcal(res.previousCalories)} → ${formatKcal(res.totals.calories)} · recalculated from the food database.`,
       });
       onOpenChange(false);
       onSaved();

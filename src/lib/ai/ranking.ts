@@ -18,6 +18,10 @@ export interface RankingContext {
   goal?: string | null;
   recentMealNames: string[];
   recentRecommendationNames: string[];
+  /** Meal names the user explicitly liked (thumbs up) — gentle preference signal. */
+  likedMealNames?: string[];
+  /** Meal names the user explicitly rejected (thumbs down) — avoid unless clearly best. */
+  dislikedMealNames?: string[];
 }
 
 const RANK_SYSTEM_PROMPT = `You are the reasoning component of a nutrition recommendation engine. You will receive pre-validated meal candidates with nutrition values computed from a trusted food database, the user's remaining daily nutrition budget, health context, and retrieved evidence excerpts.
@@ -74,6 +78,8 @@ export function buildRankingUserPrompt(
 
   const recent = ctx.recentMealNames.length ? ctx.recentMealNames.slice(0, 8).join(", ") : "(none yet)";
   const recentRecs = ctx.recentRecommendationNames.length ? ctx.recentRecommendationNames.slice(0, 6).join(", ") : "(none)";
+  const liked = ctx.likedMealNames?.length ? ctx.likedMealNames.slice(0, 5).join(", ") : "(none yet)";
+  const disliked = ctx.dislikedMealNames?.length ? ctx.dislikedMealNames.slice(0, 5).join(", ") : "(none yet)";
 
   return `CURRENT MEAL SLOT: ${ctx.mealSlot}
 HEALTH CONDITIONS: ${ctx.conditions.length ? ctx.conditions.join(", ") : "none"}
@@ -83,6 +89,8 @@ CONSUMED TODAY: ${fmtNutritionCompact(ctx.consumedToday)}
 REMAINING TODAY: ${fmtNutritionCompact(ctx.remainingToday)}
 MEALS ALREADY EATEN TODAY: ${recent}
 RECENTLY RECOMMENDED (avoid repeating unless clearly best): ${recentRecs}
+USER LIKED (thumbs up, prefer similar choices when they fit): ${liked}
+USER REJECTED (thumbs down, avoid unless clearly the best remaining option): ${disliked}
 
 EVIDENCE EXCERPTS:
 ${evidenceLines}

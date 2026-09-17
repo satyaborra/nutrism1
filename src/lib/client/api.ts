@@ -6,6 +6,8 @@
 import type {
   AnalyzeFoodResponse,
   AuthResponse,
+  CoachChatSendResponse,
+  CoachChatThreadResponse,
   CoachInsightResponse,
   ConfirmFoodRequest,
   ConfirmFoodResponse,
@@ -109,6 +111,15 @@ export const api = {
     }),
   coachInsight: (refresh = false) =>
     request<CoachInsightResponse>(`/api/nutrition/coach-insight${refresh ? "?refresh=1" : ""}`),
+  coachChatThread: (threadId?: string) =>
+    request<CoachChatThreadResponse>(
+      `/api/nutrition/coach-chat${threadId ? `?threadId=${encodeURIComponent(threadId)}` : ""}`,
+    ),
+  coachChatSend: (message: string, threadId?: string) =>
+    request<CoachChatSendResponse>("/api/nutrition/coach-chat", {
+      method: "POST",
+      body: JSON.stringify({ message, ...(threadId ? { threadId } : {}) }),
+    }),
   sendFeedback: (payload: FeedbackSendRequest) =>
     request<FeedbackSendResponse>("/api/nutrition/recommendation-feedback", {
       method: "POST",

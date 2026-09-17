@@ -4,16 +4,19 @@
  * AI Coach — a rate-limited SLM insight over today's deterministic numbers and
  * RAG evidence. Button-triggered (costly call), cached server-side until the
  * user's data changes; refresh forces regeneration within rate limits.
+ * Includes a threaded follow-up chat grounded in the same verified numbers.
  */
-import { useState } from "react";
-import { AlertTriangle, BadgeCheck, Lightbulb, RefreshCw, Sparkles } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { AlertTriangle, BadgeCheck, Lightbulb, MessageCircle, RefreshCw, Send, Sparkles, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
 import { useNutriStore } from "./store";
 import { api } from "@/lib/client/api";
-import type { CoachInsightResponse } from "@/lib/client/types";
+import type { CoachChatMessage, CoachInsightResponse } from "@/lib/client/types";
 
 export function AiCoach() {
   const dataVersion = useNutriStore((s) => s.dataVersion);
@@ -165,7 +168,161 @@ export function AiCoach() {
             The coach looks at what you logged, your condition constraints and cited clinical evidence — then tells you what to focus on.
           </p>
         )}
+
+        <CoachChat />
       </CardContent>
     </Card>
+  );
+}
+
+/** Threaded follow-up chat with the coach — grounded in the same verified numbers. */
+function CoachChat() {
+  const { toast } = useToast();
+  const [open, setOpen] = useState(false);
+  const [threadId, setThreadId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<CoachChatMessage[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [input, setInput] = useState("");
+  const [sending, setSending] = useState(false);
+  const listRef = useRef<HTMLDivElement>(null);
+
+  // Lazy-load the latest thread the first time the chat is opened
+  useEffect(() => {
+    if (!open || loaded) return;
+    let alive = true;
+    api
+      .coachChatThread()
+      .then((res) => {
+        if (!alive) return;
+        setThreadId(res.threadId);
+        setMessages(res.messages);
+        setLoaded(true);
+      })
+      .catch(() => alive && setLoaded(true));
+    return () => {
+      alive = false;
+    };
+  }, [open, loaded]);
+
+  // Keep the newest message in view
+  useEffect(() => {
+    if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
+  }, [messages, sending]);
+
+  async function handleSend() {
+    const text = input.trim();
+    if (!text || sending) return;
+    setInput("");
+    setSending(true);
+    const optimistic: CoachChatMessage = {
+      id: `tmp_${Date.now()}`,
+      role: "user",
+      content: text,
+      createdAt: new Date().toISOString(),
+    };
+    setMessages((prev) => [...prev, optimistic]);
+    try {
+      const res = await api.coachChatSend(text, threadId ?? undefined);
+      setThreadId(res.threadId);
+      setMessages((prev) => [...prev.filter((m) => m.id !== optimistic.id), optimistic, res.reply]);
+      if (res.engineSource === "deterministic_fallback") {
+        toast({ title: "Coach answered offline", description: "AI was unreachable — reply generated from your verified numbers." });
+      }
+    } catch (e) {
+      setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
+      setInput(text); // restore so the user can retry
+      toast({
+        title: "Message not sent",
+        description: e instanceof Error ? e.message : "Please try again in a moment.",
+        variant: "destructive",
+      });
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <div className="mt-4 border-t border-primary/15 pt-3">
+      {!open ? (
+        <Button variant="ghost" size="sm" className="h-8 gap-1.5 text-muted-foreground hover:text-foreground" onClick={() => setOpen(true)}>
+          <MessageCircle className="h-4 w-4" aria-hidden /> Ask a follow-up question
+        </Button>
+      ) : (
+        <div className="space-y-2.5">
+          <div className="flex items-center justify-between">
+            <p className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
+              <MessageCircle className="h-3.5 w-3.5 text-primary" aria-hidden /> Follow-up chat
+              <span className="font-normal text-muted-foreground">— grounded in today&apos;s verified numbers</span>
+            </p>
+            <Button variant="ghost" size="icon" className="h-6 w-6" aria-label="Close chat" onClick={() => setOpen(false)}>
+              <X className="h-3.5 w-3.5" aria-hidden />
+            </Button>
+          </div>
+
+          {loaded && messages.length > 0 && (
+            <div ref={listRef} className="max-h-64 space-y-2 overflow-y-auto pr-1 [scrollbar-width:thin]" aria-live="polite">
+              {messages.map((m) => (
+                <div key={m.id} className={cn("flex", m.role === "user" ? "justify-end" : "justify-start")}>
+                  {m.role === "assistant" && (
+                    <span className="mr-2 mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/15" aria-hidden>
+                      <Sparkles className="h-3 w-3 text-primary" />
+                    </span>
+                  )}
+                  <div
+                    className={cn(
+                      "max-w-[85%] whitespace-pre-wrap rounded-2xl px-3 py-2 text-xs leading-relaxed",
+                      m.role === "user"
+                        ? "rounded-br-sm bg-primary text-primary-foreground shadow-sm"
+                        : "rounded-bl-sm border bg-background/80 text-foreground",
+                    )}
+                  >
+                    {m.content}
+                  </div>
+                </div>
+              ))}
+              {sending && (
+                <div className="flex justify-start" aria-label="Coach is typing">
+                  <span className="mr-2 mt-1 flex h-5 w-5 items-center justify-center rounded-full bg-primary/15" aria-hidden>
+                    <Sparkles className="h-3 w-3 text-primary" />
+                  </span>
+                  <div className="flex items-center gap-1 rounded-2xl rounded-bl-sm border bg-background/80 px-3 py-2.5">
+                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary/60 [animation-delay:0ms]" />
+                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary/60 [animation-delay:150ms]" />
+                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary/60 [animation-delay:300ms]" />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {loaded && messages.length === 0 && (
+            <p className="rounded-lg border border-dashed bg-background/50 px-3 py-2 text-xs text-muted-foreground">
+              Ask things like “what should I prioritize for dinner?” — the coach answers from your logged data, not guesswork.
+            </p>
+          )}
+
+          <form
+            className="flex items-center gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleSend();
+            }}
+          >
+            <Input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="Ask the coach…"
+              maxLength={500}
+              aria-label="Your question for the coach"
+              className="h-9 rounded-full bg-background"
+              disabled={sending}
+            />
+            <Button type="submit" size="icon" className="h-9 w-9 shrink-0 rounded-full" disabled={sending || input.trim().length < 2} aria-label="Send question">
+              {sending ? <RefreshCw className="h-4 w-4 animate-spin" aria-hidden /> : <Send className="h-4 w-4" aria-hidden />}
+            </Button>
+          </form>
+        </div>
+      )}
+    </div>
   );
 }

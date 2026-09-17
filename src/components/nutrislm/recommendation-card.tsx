@@ -217,6 +217,17 @@ export function RecommendationCard() {
                   <FlaskConical className="h-3 w-3" aria-hidden /> Deterministic fallback
                 </Badge>
               )}
+              {rec.feedbackSignal && (rec.feedbackSignal.down > 0 || rec.feedbackSignal.up > 0) && (
+                <Badge
+                  variant="outline"
+                  title="This ranking was adjusted using your recent thumbs up/down feedback."
+                  className="gap-1 border-teal-500/40 bg-teal-500/10 text-teal-700 dark:text-teal-400"
+                >
+                  <ThumbsUp className="h-3 w-3" aria-hidden /> tuned by your feedback
+                  {rec.feedbackSignal.down > 0 && <span className="tabular-nums">· {rec.feedbackSignal.down}↓</span>}
+                  {rec.feedbackSignal.up > 0 && <span className="tabular-nums">· {rec.feedbackSignal.up}↑</span>}
+                </Badge>
+              )}
               {rec.aiNote && <span className="min-w-0 flex-1 truncate">{rec.aiNote}</span>}
             </div>
 

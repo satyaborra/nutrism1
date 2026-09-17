@@ -57,6 +57,8 @@ export interface NextMealRecommendation {
   explanation: string;
   keyFactors: string[];
   evidence: RecommendationEvidence[];
+  /** Present when the user's persisted thumbs up/down influenced this ranking. */
+  feedbackSignal: { down: number; up: number } | null;
   contextSummary: {
     conditions: string[];
     dietaryPreference: string;
@@ -159,7 +161,13 @@ function safeParseTemplateItems(json: string): { foodId: string; quantity: numbe
 
 // ---------- Deterministic scoring ----------
 
-function scoreCandidate(c: RecommendationCandidate, remaining: NutritionValues, recentRecIds: string[]): number {
+function scoreCandidate(
+  c: RecommendationCandidate,
+  remaining: NutritionValues,
+  recentRecIds: string[],
+  downVotedIds: Set<string>,
+  upvotedIds: Set<string>,
+): number {
   // How well does candidate fill remaining calories/protein without overshooting?
   const kcalFit = 1 - Math.min(1, Math.abs(remaining.calories - c.nutrition.calories) / Math.max(400, remaining.calories));
   const proteinFit = remaining.protein > 0 ? Math.min(1, c.nutrition.protein / Math.max(10, remaining.protein * 0.4)) : 0.5;
@@ -174,6 +182,11 @@ function scoreCandidate(c: RecommendationCandidate, remaining: NutritionValues, 
   // Diversity penalty from recommendation history
   const repeatCount = recentRecIds.filter((id) => id === c.id).length;
   score -= repeatCount * 0.18;
+
+  // Human-feedback loop: heavy penalty for explicitly rejected candidates,
+  // gentle boost for approved ones (persisted via thumbs up/down).
+  if (downVotedIds.has(c.id)) score -= 0.5;
+  if (upvotedIds.has(c.id)) score += 0.12;
 
   // Small cuisine variety nudge
   score += (c.items.length >= 3 ? 0.03 : 0);
@@ -244,15 +257,31 @@ export async function generateNextMealRecommendation(input: NextMealContextInput
     })
     .filter(Boolean);
 
+  // Human-feedback signal: persisted thumbs up/down from the last 14 days
+  const recentFeedback = await db.recommendationFeedback
+    .findMany({
+      where: { userId: input.userId, createdAt: { gte: new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000) } },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+    })
+    .catch(() => []);
+  const downVotedIds = new Set(recentFeedback.filter((f) => f.rating === "down").map((f) => f.candidateId).filter((x): x is string => !!x));
+  const upvotedIds = new Set(recentFeedback.filter((f) => f.rating === "up").map((f) => f.candidateId).filter((x): x is string => !!x));
+
   // 1-2. Candidates + 3. deterministic nutrition + 4. constraint screening
   const candidates = await generateCandidates(conditions, allergies, dietaryPreference, mealSlot);
 
-  // 5. deterministic scoring
+  // 5. deterministic scoring (incl. feedback adjustments)
   for (const c of candidates) {
-    c.score = scoreCandidate(c, remaining, recentRecIds);
+    c.score = scoreCandidate(c, remaining, recentRecIds, downVotedIds, upvotedIds);
   }
   candidates.sort((a, b) => b.score - a.score);
   const topCandidates = candidates.slice(0, 5);
+
+  // Names for the feedback the AI prompt should be aware of (empty when no feedback)
+  const nameById = new Map(candidates.map((c) => [c.id, c.name] as const));
+  const dislikedNames = [...downVotedIds].map((id) => nameById.get(id)).filter((x): x is string => !!x);
+  const likedNames = [...upvotedIds].map((id) => nameById.get(id)).filter((x): x is string => !!x);
 
   if (topCandidates.length === 0) {
     // Absolute fallback: no template passed filters — return a minimal safe suggestion
@@ -278,6 +307,7 @@ export async function generateNextMealRecommendation(input: NextMealContextInput
       explanation: "We couldn't generate safe candidates with your current filters. Try relaxing your profile settings (e.g. allergies) or check back later.",
       keyFactors: ["No valid candidates passed your health constraints"],
       evidence: [],
+      feedbackSignal: null,
       contextSummary: {
         conditions, dietaryPreference, remainingToday: remaining, targets,
       },
@@ -304,6 +334,8 @@ export async function generateNextMealRecommendation(input: NextMealContextInput
     goal: profile?.goal ?? null,
     recentMealNames: input.mealsToday.flatMap((m) => m.foods.map((f) => f.displayName)),
     recentRecommendationNames: recentRecNames,
+    likedMealNames: likedNames,
+    dislikedMealNames: dislikedNames,
   };
 
   const forValidation: CandidateForValidation[] = topCandidates.map((c) => ({
@@ -338,6 +370,12 @@ export async function generateNextMealRecommendation(input: NextMealContextInput
     aiNote = "AI reasoning was unavailable; used deterministic selection.";
   }
 
+  // Honest attribution: surface the feedback adjustment in the response when it was applied
+  const feedbackApplied = downVotedIds.size + upvotedIds.size > 0;
+  if (feedbackApplied) {
+    keyFactors = [...keyFactors, "Adjusted using your recent thumbs up/down feedback"].slice(0, 6);
+  }
+
   // Evidence refs validation: keep only evidence that actually exists and was retrieved
   const validEvidence = evidence.chunks;
 
@@ -368,6 +406,7 @@ export async function generateNextMealRecommendation(input: NextMealContextInput
     explanation: localizedExplanation,
     keyFactors,
     evidence: validEvidence,
+    feedbackSignal: feedbackApplied ? { down: downVotedIds.size, up: upvotedIds.size } : null,
     contextSummary: {
       conditions, dietaryPreference, remainingToday: remaining, targets,
     },

@@ -32,6 +32,13 @@ interface EditMealBody {
   notes?: string | null;
 }
 
+interface ConversionNote {
+  lineId: string;
+  food: string;
+  note: string;
+  exact: boolean;
+}
+
 function extractId(url: string): string {
   const parts = new URL(url).pathname.split("/").filter(Boolean);
   const id = parts[parts.length - 1];
@@ -111,6 +118,7 @@ export const PATCH = withApi("meal_edit", async ({ req }: { req: NextRequest }) 
     const byId = new Map(meal.foods.map((f) => [f.id, f]));
     const removeIds = new Set<string>();
     const newLines: RecomputedLine[] = [];
+    const conversionNotes: ConversionNote[] = [];
 
     for (const edit of edits) {
       if (!edit?.lineId) throw new AppError("VALIDATION_FAILED", "Each food edit needs a lineId.");
@@ -136,6 +144,9 @@ export const PATCH = withApi("meal_edit", async ({ req }: { req: NextRequest }) 
         if (food) {
           const conv = convertQuantity(newQty, newUnit, food.servingUnit);
           nutrition = calculateFoodLine(foodToRef(food), conv.quantityInRefs);
+          if (newUnit !== line.unit && conv.note) {
+            conversionNotes.push({ lineId: line.id, food: line.displayName, note: conv.note, exact: conv.exact });
+          }
         } else {
           // Food removed from DB since logging — scale persisted values
           nutrition = scaleNutrition(lineNutrition(line), newQty / line.quantity);
@@ -236,7 +247,7 @@ export const PATCH = withApi("meal_edit", async ({ req }: { req: NextRequest }) 
       },
     });
 
-    return { meal: savedMeal, totals, previousCalories: meal.totalCalories };
+    return { meal: savedMeal, totals, previousCalories: meal.totalCalories, conversionNotes };
   });
 
   const safeTotals = zeroNutrition();
@@ -250,6 +261,7 @@ export const PATCH = withApi("meal_edit", async ({ req }: { req: NextRequest }) 
     previousCalories: round(updated.previousCalories, 1),
     totals: safeTotals,
     foodsCount: updated.meal.foods.length,
+    conversionNotes: updated.conversionNotes,
     recommendationInvalidated: true,
   });
 });

@@ -27,6 +27,7 @@ model User {
   auditLogs       AuditLog[]
   hydration       HydrationLog[]
   mealFeedback    RecommendationFeedback[]
+  coachMessages   CoachMessage[]
 }
 
 model Profile {
@@ -258,6 +259,19 @@ model RecommendationFeedback {
 
   @@unique([userId, recommendationId])
   @@index([userId, createdAt])
+}
+
+// AI coach follow-up chat — threaded Q&A grounded in deterministic numbers.
+model CoachMessage {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  threadId  String
+  role      String // user | assistant
+  content   String // never contains secrets; capped at API layer
+  createdAt DateTime @default(now())
+
+  @@index([userId, threadId, createdAt])
 }
 
 // ============ OBSERVABILITY ============
