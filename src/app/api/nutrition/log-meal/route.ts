@@ -199,11 +199,19 @@ export const POST = withApi("log_meal", async ({ req }: { req: NextRequest }) =>
 function parseEatenAt(raw: string | undefined): Date {
   if (!raw) return new Date();
   const d = new Date(raw);
-  if (Number.isNaN(d.getTime())) return new Date();
-  // bound to ±2 days
+  // Out-of-range or unparseable dates are REJECTED, not silently swapped for
+  // "now" — a backfilled meal must never land on the wrong day unnoticed.
+  if (Number.isNaN(d.getTime())) {
+    throw new AppError("VALIDATION_FAILED", "eatenAt is not a valid date.");
+  }
   const now = Date.now();
   const t = d.getTime();
-  if (t > now + 2 * 24 * 3600 * 1000 || t < now - 30 * 24 * 3600 * 1000) return new Date();
+  if (t > now + 2 * 24 * 3600 * 1000 || t < now - 30 * 24 * 3600 * 1000) {
+    throw new AppError(
+      "VALIDATION_FAILED",
+      "eatenAt is out of range — meals can be backfilled up to 30 days back, and no more than 2 days ahead.",
+    );
+  }
   return d;
 }
 

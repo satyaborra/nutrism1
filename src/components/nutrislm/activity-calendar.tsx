@@ -8,7 +8,7 @@
  * Weeks / day buckets come from /api/nutrition/activity-calendar.
  */
 import { useEffect, useMemo, useState } from "react";
-import { CalendarDays, Droplets, Flame, X } from "lucide-react";
+import { CalendarDays, Droplets, Flame, Plus, X } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
@@ -60,6 +60,7 @@ function monthOf(dateKey: string): string {
 
 export function ActivityCalendar() {
   const dataVersion = useNutriStore((s) => s.dataVersion);
+  const requestBackfill = useNutriStore((s) => s.requestBackfill);
   const [data, setData] = useState<ActivityCalendarResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [weeks, setWeeks] = useState<number>(12);
@@ -204,23 +205,31 @@ export function ActivityCalendar() {
                         const isSelected = day.date === selected;
                         const isFuture = day.date > data.today;
                         if (isFuture) return <span key={ri} className="size-[14px]" aria-hidden />;
+                        const waterHero = day.water >= 8;
                         return (
                           <button
                             key={ri}
                             type="button"
                             onClick={() => setSelected(isSelected ? null : day.date)}
-                            aria-label={`${formatDay(day.date)}: ${day.meals === 0 ? "no meals" : `${day.meals} meal${day.meals === 1 ? "" : "s"}, ${day.calories.toLocaleString()} kcal, ${LEVEL_HINT[lvl]}`}`}
+                            aria-label={`${formatDay(day.date)}: ${day.meals === 0 ? "no meals" : `${day.meals} meal${day.meals === 1 ? "" : "s"}, ${day.calories.toLocaleString()} kcal, ${LEVEL_HINT[lvl]}`}${waterHero ? `, hydration hero ${day.water}/8` : ""}`}
                             aria-pressed={isSelected}
-                            title={`${formatDay(day.date)} — ${day.meals === 0 ? "no meals" : `${day.calories.toLocaleString()} kcal · ${day.water}/8 glasses`}`}
+                            title={`${formatDay(day.date)} — ${day.meals === 0 ? "no meals" : `${day.calories.toLocaleString()} kcal · ${day.water}/8 glasses`}${waterHero ? " · hydration goal met" : ""}`}
                             className={cn(
-                              "size-[14px] shrink-0 rounded-[3px] transition-all duration-100",
+                              "relative size-[14px] shrink-0 rounded-[3px] transition-all duration-100",
                               "hover:scale-125 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-1 focus-visible:ring-offset-background",
                               "active:scale-95",
                               LEVEL_CLASS[lvl],
                               isToday && !isSelected && "ring-2 ring-foreground/70 ring-offset-1 ring-offset-background animate-today-pulse",
                               isSelected && "scale-125 ring-2 ring-foreground",
                             )}
-                          />
+                          >
+                            {waterHero && (
+                              <span
+                                aria-hidden
+                                className="absolute -bottom-[3px] -right-[3px] size-[6px] rounded-full border border-background bg-teal-500 shadow-[0_0_4px_rgba(20,184,166,0.7)]"
+                              />
+                            )}
+                          </button>
                         );
                       })}
                     </div>
@@ -230,14 +239,20 @@ export function ActivityCalendar() {
             </div>
 
             {/* legend */}
-            <div className="flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
+            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
               <span>Colour = day&apos;s calories vs target</span>
-              <span className="flex items-center gap-1" aria-hidden>
-                less
-                {([0, 1, 2, 3, 4, 5] as const).map((l) => (
-                  <span key={l} className={cn("size-[10px] rounded-[2px]", LEVEL_CLASS[l])} />
-                ))}
-                more
+              <span className="flex items-center gap-1.5">
+                <span className="flex items-center gap-1" aria-hidden>
+                  less
+                  {([0, 1, 2, 3, 4, 5] as const).map((l) => (
+                    <span key={l} className={cn("size-[10px] rounded-[2px]", LEVEL_CLASS[l])} />
+                  ))}
+                  more
+                </span>
+                <span className="flex items-center gap-1" aria-hidden>
+                  <span className="inline-block size-[6px] rounded-full border border-background bg-teal-500" />
+                  = 8+ glasses
+                </span>
               </span>
             </div>
 
@@ -264,6 +279,18 @@ export function ActivityCalendar() {
                     <X className="size-3.5" aria-hidden />
                   </button>
                 </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    requestBackfill(selectedDay.date);
+                    document.getElementById("log-food")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                  }}
+                  className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-md border border-primary/40 bg-primary/5 px-3 py-2 text-xs font-medium text-primary transition-all hover:bg-primary/10 active:scale-[0.98]"
+                >
+                  <Plus className="size-3.5" aria-hidden />
+                  Log a meal for this day
+                </button>
 
                 {selectedDay.meals === 0 ? (
                   <p className="mt-2 text-sm text-muted-foreground">No meals logged this day.</p>

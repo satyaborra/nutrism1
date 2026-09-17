@@ -8,7 +8,7 @@
  * and falls back to a rule-based reflection if AI is unavailable.
  */
 import { useCallback, useEffect, useState } from "react";
-import { BookOpenCheck, BrainCircuit, RefreshCw, Sparkles } from "lucide-react";
+import { BookOpenCheck, BrainCircuit, Download, RefreshCw, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -41,6 +41,45 @@ function dayLabel(dateKey: string): string {
   if (days === 0) return "Today";
   if (days === 1) return "Yesterday";
   return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+}
+
+/**
+ * Render the journal to Markdown — 100% deterministic from the server data,
+ * mirroring what the card shows (feelings only, never nutrition numbers).
+ */
+function buildJournalMarkdown(data: NotesJournalResponse): string {
+  const lines: string[] = [];
+  const generated = new Date().toLocaleString("en-GB", { day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  lines.push("# NutriSLM — Notes journal");
+  lines.push("");
+  lines.push(`Generated ${generated} · last 30 days`);
+  lines.push("");
+  lines.push(`- Notes: ${data.stats.total}`);
+  lines.push(`- This week: ${data.stats.last7}`);
+  if (data.stats.moodCounts.length > 0) {
+    lines.push(`- Moods: ${data.stats.moodCounts.map((m) => `${m.mood} ×${m.count}`).join(", ")}`);
+  }
+  lines.push("");
+  if (data.notes.length === 0) {
+    lines.push("No reflection notes in the last 30 days.");
+  } else {
+    let currentDate = "";
+    for (const n of data.notes) {
+      const day = dayLabel(n.date);
+      if (day !== currentDate) {
+        currentDate = day;
+        lines.push(`## ${day}`);
+        lines.push("");
+      }
+      const moods = n.moods.length > 0 ? ` (${n.moods.join(", ")})` : "";
+      lines.push(`- **${n.mealType.charAt(0).toUpperCase()}${n.mealType.slice(1)}**${moods} — “${n.note}”`);
+    }
+  }
+  lines.push("");
+  lines.push("---");
+  lines.push("Feelings only — this journal never contains nutrition numbers or medical advice.");
+  lines.push("");
+  return lines.join("\n");
 }
 
 export function NotesJournal() {
@@ -76,6 +115,25 @@ export function NotesJournal() {
     }
   }, []);
 
+  const exportMarkdown = useCallback(() => {
+    if (!data) return;
+    try {
+      const md = buildJournalMarkdown(data);
+      const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "nutrislm-notes-journal.md";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast({ title: "Journal exported", description: "nutrislm-notes-journal.md downloaded — feelings only, no numbers." });
+    } catch {
+      toast({ title: "Could not export the journal", description: "Please try again.", variant: "destructive" });
+    }
+  }, [data, toast]);
+
   const maxMood = data?.stats.moodCounts[0]?.count ?? 0;
 
   return (
@@ -101,6 +159,16 @@ export function NotesJournal() {
                   {data.stats.last7} this week
                 </span>
               )}
+              <button
+                type="button"
+                onClick={exportMarkdown}
+                aria-label="Export journal as Markdown"
+                title="Export journal as Markdown (.md)"
+                className="inline-flex items-center gap-1 rounded-full border bg-background px-2.5 py-1 font-medium text-muted-foreground transition-all hover:border-teal-500/40 hover:bg-teal-500/10 hover:text-teal-700 active:scale-95 dark:hover:text-teal-400"
+              >
+                <Download className="size-3" aria-hidden />
+                Export .md
+              </button>
             </div>
           )}
         </div>

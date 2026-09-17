@@ -35,7 +35,7 @@ export const GET = withApi("milestones", async (): Promise<NextResponse> => {
   const since = new Date();
   since.setDate(since.getDate() - 90); // scan window: 90 days is plenty for streaks
 
-  const [totalMeals, meals, hydration, foodsTried, photoLogs, coachMessages, feedback] = await Promise.all([
+  const [totalMeals, meals, hydration, foodsTried, photoLogs, coachMessages, feedback, notesCount] = await Promise.all([
     db.meal.count({ where: { userId: user.id } }),
     db.meal.findMany({
       where: { userId: user.id, eatenAt: { gte: since } },
@@ -54,6 +54,7 @@ export const GET = withApi("milestones", async (): Promise<NextResponse> => {
     db.meal.count({ where: { userId: user.id, source: "image" } }),
     db.coachMessage.count({ where: { userId: user.id, role: "user" } }),
     db.recommendationFeedback.count({ where: { userId: user.id } }),
+    db.meal.count({ where: { userId: user.id, userNotes: { not: null } } }),
   ]);
 
   const loggedDays = new Set(meals.map((m) => dayKey(m.eatenAt)));
@@ -100,6 +101,7 @@ export const GET = withApi("milestones", async (): Promise<NextResponse> => {
     build("photo-1", "Lens ready", "Log your first meal from a photo", "📸", photoLogs, 1),
     build("coach-1", "Curious mind", "Ask the coach your first question", "💡", coachMessages, 1),
     build("feedback-1", "Tuning in", "Rate a recommendation", "🎯", feedback, 1),
+    build("notes-3", "Notes keeper", "Add feelings notes to 3 meals", "🗒️", notesCount, 3),
   ];
 
   const achievedCount = milestones.filter((m) => m.achieved).length;
@@ -114,6 +116,7 @@ export const GET = withApi("milestones", async (): Promise<NextResponse> => {
       daysLogged90d: loggedDays.size,
       hydrationHeroDays: heroDays,
       foodsTried: foodsTried.length,
+      notesWritten: notesCount,
     },
   });
 });

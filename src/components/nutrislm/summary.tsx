@@ -141,6 +141,21 @@ const BAR_TONE: Record<string, string> = {
   saturatedFat: "bg-red-400",
 };
 
+/** Gradient fills add depth to the macro bars; each falls back to its flat tone. */
+const BAR_GRADIENT: Record<string, string> = {
+  calories: "bg-gradient-to-r from-orange-600 to-orange-400",
+  protein: "bg-gradient-to-r from-emerald-700 to-emerald-500",
+  carbohydrates: "bg-gradient-to-r from-amber-600 to-amber-400",
+  fat: "bg-gradient-to-r from-rose-600 to-rose-400",
+  fiber: "bg-gradient-to-r from-lime-700 to-lime-500",
+  sugar: "bg-gradient-to-r from-pink-600 to-pink-400",
+  sodium: "bg-gradient-to-r from-red-600 to-red-400",
+  potassium: "bg-gradient-to-r from-teal-700 to-teal-500",
+  phosphorus: "bg-gradient-to-r from-violet-600 to-violet-400",
+  cholesterol: "bg-gradient-to-r from-yellow-700 to-yellow-500",
+  saturatedFat: "bg-gradient-to-r from-red-500 to-red-300",
+};
+
 function formatByKey(key: keyof NutritionValues, value: number): string {
   if (key === "calories") return formatKcal(value);
   if (key === "sodium" || key === "potassium" || key === "phosphorus" || key === "cholesterol") return formatMg(value);
@@ -169,7 +184,10 @@ export function NutrientBar({
         </span>
       </div>
       <div
-        className="h-2 w-full overflow-hidden rounded-full bg-muted"
+        className={cn(
+          "h-2 w-full overflow-hidden rounded-full bg-muted",
+          over && "ring-1 ring-destructive/30",
+        )}
         role="progressbar"
         aria-valuenow={percent}
         aria-valuemin={0}
@@ -177,9 +195,17 @@ export function NutrientBar({
         aria-label={`${label} progress`}
       >
         <div
-          className={cn("h-full rounded-full transition-all duration-500", over ? "bg-destructive" : BAR_TONE[nutrient] ?? "bg-primary")}
+          className={cn(
+            "relative h-full rounded-full transition-all duration-500 ease-out",
+            over ? "bg-gradient-to-r from-red-600 to-red-400" : BAR_GRADIENT[nutrient] ?? BAR_TONE[nutrient] ?? "bg-primary",
+          )}
           style={{ width: `${percent}%` }}
-        />
+        >
+          {/* glass sheen — a faint highlight along the top edge of the fill */}
+          {percent >= 4 && (
+            <span aria-hidden className="absolute inset-x-1 top-0 h-[45%] rounded-full bg-white/25" />
+          )}
+        </div>
       </div>
     </div>
   );

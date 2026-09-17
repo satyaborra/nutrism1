@@ -202,6 +202,8 @@ export interface LogMealRequest {
   foods: LogMealItemInput[];
   notes?: string;
   source?: "text" | "image" | "manual" | "recommendation";
+  /** ISO datetime — only sent for backfilled (past-day) logs; omitted = "now". */
+  eatenAt?: string;
 }
 
 export interface ConstraintViolation {

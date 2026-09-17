@@ -8,9 +8,10 @@
  *   3. LOGGED  — meal persisted transactionally & idempotently (log-meal).
  * The client never computes nutrition — all numbers come from the API.
  */
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
+  CalendarClock,
   Camera,
   CheckCircle2,
   ChevronLeft,
@@ -45,7 +46,7 @@ import type {
   QuantitySource,
 } from "@/lib/client/types";
 import { api, ApiError, fileToDataUrl } from "@/lib/client/api";
-import { MEAL_TYPES, languageLabel, mealLabel } from "./store";
+import { MEAL_TYPES, languageLabel, mealLabel, useNutriStore } from "./store";
 import { FavoritesBar } from "./favorites-bar";
 import { ComplianceAlerts } from "./summary";
 
@@ -57,6 +58,41 @@ const EXAMPLES = [
 ];
 
 const COMMON_UNITS = ["piece", "pieces", "cup", "bowl", "glass", "katori", "tbsp", "tsp", "g", "ml", "serving"];
+
+/** Default clock time per meal slot for backfilled days (local time). */
+const SLOT_DEFAULT_TIME: Record<string, string> = {
+  breakfast: "08:30",
+  lunch: "12:30",
+  snack: "16:30",
+  dinner: "19:30",
+};
+
+function dayKeyOf(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function todayKey(): string {
+  return dayKeyOf(new Date());
+}
+
+function yesterdayKey(): string {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return dayKeyOf(d);
+}
+
+function minBackfillKey(): string {
+  const d = new Date();
+  d.setDate(d.getDate() - 30);
+  return dayKeyOf(d);
+}
+
+function prettyDate(key: string): string {
+  return new Date(`${key}T12:00:00`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+}
 
 interface EditableLine {
   lineId: string;
@@ -86,12 +122,15 @@ interface LoggedSummary {
   duplicate: boolean;
   totals: NutritionValues;
   compliance: Compliance;
+  backfillDate: string | null;
 }
 
 type Step = "input" | "review" | "logged";
 
 export function FoodLogger({ onLogged }: { onLogged: () => void }) {
   const { toast } = useToast();
+  const backfillRequest = useNutriStore((s) => s.backfillRequest);
+  const clearBackfill = useNutriStore((s) => s.clearBackfill);
 
   const [step, setStep] = useState<Step>("input");
   const [tab, setTab] = useState("text");
@@ -99,6 +138,8 @@ export function FoodLogger({ onLogged }: { onLogged: () => void }) {
   const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
   const [imageHint, setImageHint] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [logDate, setLogDate] = useState<string>(todayKey());
 
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzeError, setAnalyzeError] = useState<string | null>(null);
@@ -122,8 +163,19 @@ export function FoodLogger({ onLogged }: { onLogged: () => void }) {
     setConfirmResult(null);
     setConfirmError(null);
     setAnalyzeError(null);
+    setLogDate(todayKey());
+    clearBackfill();
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
+
+  /** The activity calendar can ask the logger to log for a past day. */
+  useEffect(() => {
+    if (!backfillRequest) return;
+    setStep("input");
+    setLogDate(backfillRequest.date);
+    clearBackfill();
+    toast({ title: `Logging for ${prettyDate(backfillRequest.date)}`, description: "The meal you log now lands in that day's history." });
+  }, [backfillRequest, clearBackfill, toast]);
 
   async function handleAnalyze() {
     setAnalyzing(true);
@@ -244,6 +296,9 @@ export function FoodLogger({ onLogged }: { onLogged: () => void }) {
   async function handleLog() {
     setLogging(true);
     try {
+      // Backfilled meals get a synthetic slot time on the chosen day; today
+      // logs live at "now" exactly as before.
+      const isBackfill = logDate !== todayKey();
       const res = await api.logMeal({
         requestId: crypto.randomUUID(),
         draftId: meta?.draftId,
@@ -251,10 +306,11 @@ export function FoodLogger({ onLogged }: { onLogged: () => void }) {
         foods: foodsPayload(),
         // Image-based drafts are labeled "image" so the history shows how it was logged
         source: meta?.inputType === "image" ? "image" : meta?.inputType === "image_text" ? "image" : "text",
+        ...(isBackfill ? { eatenAt: `${logDate}T${SLOT_DEFAULT_TIME[mealType] ?? "12:30"}:00` } : {}),
       });
       toast({
-        title: res.duplicate ? "Meal already logged" : "Meal logged",
-        description: `${mealLabel(mealType)} · ${formatKcal(res.totals.calories)}${res.compliance.state !== "COMPLIANT" ? " · check the alerts below" : ""}`,
+        title: res.duplicate ? "Meal already logged" : isBackfill ? `Logged for ${prettyDate(logDate)}` : "Meal logged",
+        description: `${mealLabel(mealType)} · ${formatKcal(res.totals.calories)}${isBackfill ? " · added to that day's history" : ""}${res.compliance.state !== "COMPLIANT" ? " · check the alerts below" : ""}`,
       });
       onLogged();
       setLoggedResult({
@@ -262,6 +318,7 @@ export function FoodLogger({ onLogged }: { onLogged: () => void }) {
         duplicate: res.duplicate,
         totals: res.totals,
         compliance: res.compliance,
+        backfillDate: isBackfill ? logDate : null,
       });
       setStep("logged");
     } catch (e) {
@@ -302,6 +359,59 @@ export function FoodLogger({ onLogged }: { onLogged: () => void }) {
         <>
           <CardContent className="space-y-4">
             <FavoritesBar onLogged={onLogged} />
+
+            {/* logging date — today by default, backfill for the last 30 days */}
+            <div className="rounded-lg border bg-muted/30 p-2.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                  <CalendarClock className="size-3.5" aria-hidden />
+                  Logging for
+                </span>
+                <div role="group" aria-label="Logging date" className="flex overflow-hidden rounded-md border">
+                  <button
+                    type="button"
+                    onClick={() => setLogDate(todayKey())}
+                    aria-pressed={logDate === todayKey()}
+                    className={cn(
+                      "px-2.5 py-1 text-xs font-medium transition-colors active:scale-95",
+                      logDate === todayKey() ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:bg-muted",
+                    )}
+                  >
+                    Today
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLogDate(yesterdayKey())}
+                    aria-pressed={logDate === yesterdayKey()}
+                    className={cn(
+                      "px-2.5 py-1 text-xs font-medium transition-colors active:scale-95",
+                      logDate === yesterdayKey() ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:bg-muted",
+                    )}
+                  >
+                    Yesterday
+                  </button>
+                </div>
+                <Input
+                  type="date"
+                  value={logDate}
+                  min={minBackfillKey()}
+                  max={todayKey()}
+                  onChange={(e) => e.target.value && setLogDate(e.target.value)}
+                  aria-label="Pick a past date to log for (up to 30 days back)"
+                  className="h-8 w-[9.5rem] bg-background text-xs"
+                />
+              </div>
+              {logDate !== todayKey() && (
+                <p className="mt-2 flex items-start gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-[11px] leading-snug text-amber-700 dark:text-amber-400">
+                  <CalendarClock className="mt-0.5 size-3 shrink-0" aria-hidden />
+                  <span>
+                    Backfill mode — this meal lands on <strong>{prettyDate(logDate)}</strong>&apos;s history, not today&apos;s summary. Slot time defaults to{" "}
+                    {SLOT_DEFAULT_TIME[mealType] ?? "12:30"}.
+                  </span>
+                </p>
+              )}
+            </div>
+
             <Tabs value={tab} onValueChange={setTab}>
               <TabsList className="grid w-full grid-cols-2">
                 <TabsTrigger value="text" className="gap-1.5">
@@ -453,6 +563,15 @@ export function FoodLogger({ onLogged }: { onLogged: () => void }) {
               </Select>
             </div>
 
+            {logDate !== todayKey() && (
+              <p className="flex items-start gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-xs text-amber-700 dark:text-amber-400">
+                <CalendarClock className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+                <span>
+                  This meal will be logged for <strong>{prettyDate(logDate)}</strong> at {SLOT_DEFAULT_TIME[mealType] ?? "12:30"} (slot default).
+                </span>
+              </p>
+            )}
+
             {/* lines */}
             <ul className="max-h-96 space-y-2 overflow-y-auto pr-1 [scrollbar-width:thin]">
               {lines.map((l) => (
@@ -507,6 +626,12 @@ export function FoodLogger({ onLogged }: { onLogged: () => void }) {
               <p className="font-semibold">
                 {mealLabel(loggedResult.mealType)} logged{loggedResult.duplicate ? " (already existed)" : ""}
               </p>
+              {loggedResult.backfillDate && (
+                <p className="mt-0.5 inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-400">
+                  <CalendarClock className="size-3" aria-hidden />
+                  for {prettyDate(loggedResult.backfillDate)}
+                </p>
+              )}
               <p className="text-sm text-muted-foreground">
                 {formatKcal(loggedResult.totals.calories)} · protein {formatGrams(loggedResult.totals.protein)} · carbs{" "}
                 {formatGrams(loggedResult.totals.carbohydrates)} · fat {formatGrams(loggedResult.totals.fat)}

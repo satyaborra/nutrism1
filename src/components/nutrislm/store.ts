@@ -11,9 +11,14 @@ interface NutriStore {
   bootstrapped: boolean;
   /** Bumped whenever meals change so sections refetch. */
   dataVersion: number;
+  /** Request from the activity calendar to preselect a date in the logger.
+   *  nonce lets the same date be requested twice in a row. */
+  backfillRequest: { date: string; nonce: number } | null;
   setSession: (user: User | null, profileBrief: AuthProfileBrief | null) => void;
   clearSession: () => void;
   bumpData: () => void;
+  requestBackfill: (date: string) => void;
+  clearBackfill: () => void;
 }
 
 export const useNutriStore = create<NutriStore>((set) => ({
@@ -21,9 +26,12 @@ export const useNutriStore = create<NutriStore>((set) => ({
   profileBrief: null,
   bootstrapped: false,
   dataVersion: 0,
+  backfillRequest: null,
   setSession: (user, profileBrief) => set({ user, profileBrief, bootstrapped: true }),
   clearSession: () => set({ user: null, profileBrief: null, bootstrapped: true }),
   bumpData: () => set((s) => ({ dataVersion: s.dataVersion + 1 })),
+  requestBackfill: (date) => set({ backfillRequest: { date, nonce: Date.now() } }),
+  clearBackfill: () => set({ backfillRequest: null }),
 }));
 
 export const MEAL_TYPES = ["breakfast", "lunch", "snack", "dinner"] as const;
