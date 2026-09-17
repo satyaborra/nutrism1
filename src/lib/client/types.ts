@@ -342,6 +342,34 @@ export interface NextMealResponse {
   aiNote: string | null;
 }
 
+// ---------- Hydration / weekly trends ----------
+
+export interface HydrationResponse {
+  date: string;
+  glasses: number;
+  goal: number;
+  ml: number;
+}
+
+export interface WeeklyDay {
+  date: string;
+  calories: number;
+  protein: number;
+  fiber: number;
+  sugar: number;
+  sodium: number;
+  meals: number;
+  onTarget: boolean;
+}
+
+export interface WeeklySummaryResponse {
+  days: WeeklyDay[];
+  streak: number;
+  targets: { calories: number; protein: number };
+  weekTotals: { calories: number; protein: number; meals: number; daysLogged: number };
+  avgCalories: number;
+}
+
 // ---------- Health ----------
 
 export interface HealthResponse {

@@ -9,7 +9,8 @@ export type Operation =
   | "analyze_food" | "confirm_food" | "log_meal"
   | "recent_meals" | "daily_summary" | "next_meal"
   | "profile_get" | "profile_put" | "foods_search" | "health_check"
-  | "meal_delete" | "recommendation_feedback";
+  | "meal_delete" | "recommendation_feedback"
+  | "hydration_get" | "hydration_post" | "weekly_summary";
 
 export interface RequestContext {
   requestId: string;

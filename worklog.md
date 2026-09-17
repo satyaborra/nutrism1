@@ -59,3 +59,23 @@ Stage Summary:
 - Full-stack product complete: multimodal food logging (any-language text + photo), deterministic nutrition, configurable disease constraints with cited evidence, RAG-backed AI recommendations, idempotent logging, profile-driven targets.
 - All flows browser-verified green-path. Demo data (2 meals) left on demo user for preview richness.
 - Known minor: recommendations are session-only (fresh state on reload); photo flow uses VLM and was verified working earlier via API (image upload UI wired, untested in browser due to file-upload automation constraints).
+---
+Task ID: r2 (cron review round 2 — features + styling)
+Agent: Z.ai Code (orchestrator, scheduled webDevReview)
+Task: QA assessment + new features (hydration, weekly trends, streak) + styling polish
+
+Work Log:
+- QA baseline: browser smoke test passed (demo login, dashboard data intact, no runtime errors). Dev log clean apart from expected unauthenticated /api/auth/me 401s.
+- FEATURE hydration: Prisma model HydrationLog (userId+date unique, glasses 0..30) pushed to DB; API GET/POST /api/nutrition/hydration (delta or absolute, server-clamped, 1 glass=250ml, goal 8); UI HydrationWidget with animated glass bars, optimistic +/-, goal-reached state, teal styling.
+- FEATURE weekly trends: API GET /api/nutrition/weekly-summary (last-7-day deterministic aggregation over meals: calories/protein/fiber/sugar/sodium/day, meals count, calorie+protein targets, logging streak, week totals + avg); UI WeeklyTrends recharts bar chart with Calories/Protein tabs, orange dashed target ReferenceLine, muted bars for no-log days, custom tooltip, k-formatting for kcal axis, streak flame badge; refreshes on dataVersion bump.
+- Registered new Operation names in observability.ts (hydration_get/hydration_post/weekly_summary).
+- STYLING: greeting now a gradient panel (primary/10 -> background) with blurred decorative orbs; framer-motion FadeIn staggered entrance for all dashboard sections; auth hero gained icon feature bullets + stronger logo shadow; hydration teal theme accents.
+- BUGFIX (infra): hydration initially returned INTERNAL_ERROR — running dev server held a stale PrismaClient (created before schema push; globalThis singleton). Killed old dev server tree and relaunched `bun run dev` (setsid, detached). Verified hydration endpoints incl. clamping (99->30, -100->0) and streak/weekly API responses.
+- BUGFIX (chart): Y-axis ticks clipped by width=44 -> compact k-formatting + width 52 + tickCount 5; ReferenceLine now labelled "target 2,573" and always visible via domain [0, max(target,max)*1.2 rounded].
+- Verified in browser: trends chart (both tabs, target line, streak badge), hydration widget interaction (4->5 glasses, 1250ml, 63%), greeting gradient, auth feature list; protein tab shows avg 2.7g vs 68g target. Lint + tsc clean; 0 console errors on fresh load (earlier console noise was stale HMR artifacts).
+
+Stage Summary:
+- Dashboard now has: daily summary, 7-day trends + streak, food logger, recommendations, hydration tracker, recent meals, profile.
+- Dev server restarted (was stale-prisma); new Prisma models live: HydrationLog.
+- Known minor: 401 audit noise from /api/auth/me when logged out is expected but could be downgraded to status "ok" w/ note to reduce alert fatigue; weekly chart server-local date keys (same convention as daily-summary).
+- Next-round suggestions: (1) delete/edit logged meals UI, (2) food detail popover with full nutrient panel, (3) weekly CSV export, (4) AI coach insights (rate-limited LLM note on today's data), (5) photo-flow e2e via generated image, (6) reduce 401 audit noise.

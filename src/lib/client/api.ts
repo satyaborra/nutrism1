@@ -9,6 +9,7 @@ import type {
   ConfirmFoodRequest,
   ConfirmFoodResponse,
   DailySummaryResponse,
+  HydrationResponse,
   LogMealRequest,
   LogMealResponse,
   MeResponse,
@@ -16,6 +17,7 @@ import type {
   ProfileResponse,
   ProfileUpdateInput,
   RecentMealsResponse,
+  WeeklySummaryResponse,
 } from "./types";
 
 export class ApiError extends Error {
@@ -87,6 +89,10 @@ export const api = {
     request<DailySummaryResponse>(`/api/nutrition/daily-summary?date=${encodeURIComponent(date)}`),
   nextMeal: (refresh = false) =>
     request<NextMealResponse>(`/api/nutrition/next-meal${refresh ? "?refresh=1" : ""}`),
+  hydration: () => request<HydrationResponse>("/api/nutrition/hydration"),
+  hydrationUpdate: (payload: { delta?: number; glasses?: number }) =>
+    request<HydrationResponse>("/api/nutrition/hydration", { method: "POST", body: JSON.stringify(payload) }),
+  weeklySummary: () => request<WeeklySummaryResponse>("/api/nutrition/weekly-summary"),
 };
 
 /** Helper for image File -> data URL (client side). */

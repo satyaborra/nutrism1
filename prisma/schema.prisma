@@ -25,6 +25,7 @@ model User {
   drafts          AnalysisDraft[]
   recommendations RecommendationHistory[]
   auditLogs       AuditLog[]
+  hydration       HydrationLog[]
 }
 
 model Profile {
@@ -224,6 +225,19 @@ model RecommendationHistory {
   createdAt          DateTime @default(now())
 
   @@index([userId, date, mealSlot])
+}
+
+// Daily water intake (glass = ~250 ml), one row per user per local day.
+model HydrationLog {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date      String // YYYY-MM-DD (user local)
+  glasses   Int      @default(0) // clamped 0..30 server-side
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, date])
+  @@index([userId, date])
 }
 
 // ============ OBSERVABILITY ============

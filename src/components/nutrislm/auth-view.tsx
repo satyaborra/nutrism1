@@ -4,7 +4,7 @@
  * Login / register card with one-click demo login.
  */
 import { useState } from "react";
-import { Loader2, Salad, Sparkles } from "lucide-react";
+import { Camera, Loader2, Salad, ShieldCheck, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -13,6 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { api, ApiError } from "@/lib/client/api";
 import { useNutriStore } from "./store";
+import { FadeIn } from "./fade-in";
 
 const DEMO = { email: "demo@nutrislm.app", password: "demo1234" };
 
@@ -54,18 +55,41 @@ export function AuthView() {
 
   return (
     <div className="mx-auto flex w-full max-w-md flex-col items-center gap-6 py-8">
-      <div className="text-center">
-        <span className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-sm">
-          <Salad className="h-7 w-7" aria-hidden />
-        </span>
-        <h1 className="text-2xl font-bold tracking-tight">Personalized nutrition, intelligently logged</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Describe food in any language or snap a photo — we parse it, verify it against clinical guidance, and
-          recommend what to eat next.
-        </p>
-      </div>
+      <FadeIn>
+        <div className="text-center">
+          <span className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-md shadow-primary/20">
+            <Salad className="h-7 w-7" aria-hidden />
+          </span>
+          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Personalized nutrition, intelligently logged</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Describe food in any language or snap a photo — we parse it, verify it against clinical guidance, and
+            recommend what to eat next.
+          </p>
+          <ul className="mx-auto mt-4 grid max-w-sm gap-2 text-left text-xs text-muted-foreground">
+            <li className="flex items-center gap-2">
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                <Sparkles className="h-3.5 w-3.5" aria-hidden />
+              </span>
+              AI understands English, தமிழ், తెలుగు, हिन्दी, ಕನ್ನಡ — and food photos
+            </li>
+            <li className="flex items-center gap-2">
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                <ShieldCheck className="h-3.5 w-3.5" aria-hidden />
+              </span>
+              Verified IFCT/USDA nutrition facts — never invented by AI
+            </li>
+            <li className="flex items-center gap-2">
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                <Camera className="h-3.5 w-3.5" aria-hidden />
+              </span>
+              Evidence-based guidance for diabetes, kidney & heart health
+            </li>
+          </ul>
+        </div>
+      </FadeIn>
 
-      <Card className="w-full">
+      <FadeIn delay={0.1} className="w-full">
+        <Card className="w-full shadow-lg shadow-primary/5">
         <Tabs defaultValue="login">
           <CardHeader className="pb-2">
             <TabsList className="grid w-full grid-cols-2">
@@ -182,7 +206,8 @@ export function AuthView() {
             </p>
           </CardFooter>
         </Tabs>
-      </Card>
+        </Card>
+      </FadeIn>
     </div>
   );
 }

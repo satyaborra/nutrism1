@@ -1,8 +1,9 @@
 "use client";
 
 /**
- * Authenticated dashboard: daily summary, food logger, recommendation, history.
- * Sections refetch when the store's dataVersion is bumped after logging.
+ * Authenticated dashboard: daily summary, weekly trends, food logger,
+ * recommendation, hydration, history. Sections refetch when the store's
+ * dataVersion is bumped after logging.
  */
 import { useCallback, useEffect, useState } from "react";
 import { Greeting } from "./greeting";
@@ -11,6 +12,9 @@ import { RecommendationCard } from "./recommendation-card";
 import { RecentMeals } from "./recent-meals";
 import { ProfileDialog } from "./profile-dialog";
 import { SummarySection } from "./summary";
+import { WeeklyTrends } from "./weekly-trends";
+import { HydrationWidget } from "./hydration-widget";
+import { FadeIn } from "./fade-in";
 import { useNutriStore, MEAL_TYPE_ICON } from "./store";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/client/api";
@@ -38,13 +42,15 @@ export function Dashboard() {
   }, [refreshSummary, dataVersion]);
 
   function handleLogged() {
-    // dataVersion bump triggers summary + meals + recommendations refresh
+    // dataVersion bump triggers summary + trends + meals + recommendations refresh
     useNutriStore.getState().bumpData();
   }
 
   return (
     <div className="space-y-6">
-      <Greeting />
+      <FadeIn>
+        <Greeting />
+      </FadeIn>
 
       <section aria-label="Daily nutrition summary" className="space-y-3">
         {summaryError && (
@@ -58,25 +64,44 @@ export function Dashboard() {
             <p className="sr-only">Loading daily summary…</p>
           </div>
         )}
-        {summary && <SummarySection summary={summary} />}
+        {summary && (
+          <FadeIn delay={0.05}>
+            <SummarySection summary={summary} />
+          </FadeIn>
+        )}
       </section>
+
+      <FadeIn delay={0.1}>
+        <WeeklyTrends />
+      </FadeIn>
 
       <div className="grid gap-6 lg:grid-cols-5">
         <section aria-label="Food logging" className="space-y-6 lg:col-span-3">
-          <FoodLogger onLogged={handleLogged} />
-          <RecentMeals />
+          <FadeIn delay={0.15}>
+            <FoodLogger onLogged={handleLogged} />
+          </FadeIn>
+          <FadeIn delay={0.2}>
+            <RecentMeals />
+          </FadeIn>
         </section>
         <section aria-label="Recommendations and settings" className="space-y-6 lg:col-span-2">
-          <RecommendationCard />
-          <div className="flex justify-center lg:justify-start">
-            <ProfileDialog onSaved={handleLogged} />
-          </div>
-          {profileBrief && profileBrief.allergies.length > 0 && (
-            <p className="rounded-lg border border-dashed bg-muted/40 p-3 text-center text-xs text-muted-foreground lg:text-left">
-              {MEAL_TYPE_ICON.snack} Hard-excluded allergens: <strong>{profileBrief.allergies.join(", ")}</strong>. Items
-              containing these are filtered before ranking.
-            </p>
-          )}
+          <FadeIn delay={0.15}>
+            <RecommendationCard />
+          </FadeIn>
+          <FadeIn delay={0.2}>
+            <HydrationWidget />
+          </FadeIn>
+          <FadeIn delay={0.25}>
+            <div className="flex justify-center lg:justify-start">
+              <ProfileDialog onSaved={handleLogged} />
+            </div>
+            {profileBrief && profileBrief.allergies.length > 0 && (
+              <p className="mt-4 rounded-lg border border-dashed bg-muted/40 p-3 text-center text-xs text-muted-foreground lg:text-left">
+                {MEAL_TYPE_ICON.snack} Hard-excluded allergens: <strong>{profileBrief.allergies.join(", ")}</strong>. Items
+                containing these are filtered before ranking.
+              </p>
+            )}
+          </FadeIn>
         </section>
       </div>
     </div>
