@@ -683,3 +683,4 @@ Stage Summary:
   `1818548` zip refresh, `f5d50b9` Task 35 AI Coach, `f96c54f` db snapshot.
 - BLOCKED: push needs a fresh GitHub PAT from the user (old one should be revoked). Once provided, single command: `git push https://<PAT>@github.com/satyaborra/nutrism1.git main`.
 - Zip deliverable public/nutrislm-project.zip is current (post-Task-35) and committed.
+- PUSH COMPLETE (Task 36 addendum): user provided fresh PAT; pushed main to github.com/satyaborra/nutrism1 → remote = local = `6c23530`. All 5 commits live on GitHub (zip refresh, Task 35 AI Coach, db snapshots, worklog Task 36). Token used inline only, NOT persisted to config/disk. User advised to revoke after use (shared in chat).
