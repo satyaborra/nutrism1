@@ -1,0 +1,744 @@
+     1→"use client";
+     2→
+     3→/**
+     4→ * Home — the illustrated dashboard: hero greeting + quote, "Your Health
+     5→ * Matters" feature card, Today's Nutrition (ring + macro tiles), 7-day trend,
+     6→ * next-meal recommendation, recent meal photo cards, insight tip, quick
+     7→ * actions, water intake and the closing motivational banner.
+     8→ * Every number is fetched from the APIs — the client never calculates.
+     9→ */
+    10→import { useCallback, useEffect, useState } from "react";
+    11→import {
+    12→  ArrowRight,
+    13→  BarChart3,
+    14→  BookOpenCheck,
+    15→  Camera,
+    16→  ChevronRight,
+    17→  Image as ImageIcon,
+    18→  Keyboard,
+    19→  Lightbulb,
+    20→  Quote,
+    21→  Salad,
+    22→  Sparkles,
+    23→  Wheat,
+    24→  Mic,
+    25→  Droplet,
+    26→} from "lucide-react";
+    27→import { Badge } from "@/components/ui/badge";
+    28→import { Button } from "@/components/ui/button";
+    29→import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+    30→import { Skeleton } from "@/components/ui/skeleton";
+    31→import { cn } from "@/lib/utils";
+    32→import { api } from "@/lib/client/api";
+    33→import { formatGrams, formatKcal, localeFor, todayKey } from "@/lib/client/format";
+    34→import { mealImageFor } from "@/lib/client/meal-images";
+    35→import type { DailySummaryResponse, RecentMealsResponse, WeeklySummaryResponse } from "@/lib/client/types";
+    36→import { CalorieRing } from "../summary";
+    37→import { HydrationWidget } from "../hydration-widget";
+    38→import { RecommendationCard } from "../recommendation-card";
+    39→import { useNutriStore, MEAL_TYPE_ICON } from "../store";
+    40→import { FadeIn } from "../fade-in";
+    41→
+    42→/* ------------------------------------------------------------------ */
+    43→/* Hero banner: greeting + quote + leaf decorations                    */
+    44→/* ------------------------------------------------------------------ */
+    45→
+    46→function slotGreeting(h: number): { title: string; icon: string; line: string } {
+    47→  if (h < 11) return { title: "Good Morning", icon: "🌅", line: "A fresh start — let's make breakfast count." };
+    48→  if (h < 16) return { title: "Good Afternoon", icon: "👋", line: "Let's make a healthier you, one meal at a time." };
+    49→  if (h < 19) return { title: "Good Evening", icon: "🌤️", line: "Snack o'clock — small bites, chosen well." };
+    50→  return { title: "Good Night", icon: "🌙", line: "Dinner time — let's keep the day on track." };
+    51→}
+    52→
+    53→function HeroBanner() {
+    54→  const user = useNutriStore((s) => s.user);
+    55→  const profileBrief = useNutriStore((s) => s.profileBrief);
+    56→  const [now, setNow] = useState<Date | null>(null);
+    57→
+    58→  useEffect(() => {
+    59→    const raf = requestAnimationFrame(() => setNow(new Date()));
+    60→    const interval = setInterval(() => setNow(new Date()), 60_000);
+    61→    return () => {
+    62→      cancelAnimationFrame(raf);
+    63→      clearInterval(interval);
+    64→    };
+    65→  }, []);
+    66→
+    67→  const g = slotGreeting(now?.getHours() ?? new Date().getHours());
+    68→
+    69→  return (
+    70→    <div className="relative overflow-hidden rounded-3xl border border-primary/10 shadow-sm">
+    71→      {/* leaf backdrop */}
+    72→      <div
+    73→        aria-hidden
+    74→        className="absolute inset-0 bg-cover bg-left-top opacity-90 dark:opacity-25"
+    75→        style={{ backgroundImage: "url(/images/hero-leaves.png)" }}
+    76→      />
+    77→      <div aria-hidden className="absolute inset-0 bg-gradient-to-r from-background/70 via-background/40 to-background/10 dark:from-background/95 dark:via-background/85 dark:to-background/70" />
+    78→
+    79→      <div className="relative grid gap-4 p-5 sm:p-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+    80→        <div>
+    81→          <h1 className="text-2xl font-extrabold tracking-tight sm:text-[28px]">
+    82→            {g.title}
+    83→            {user?.name ? `, ${user.name.split(" ")[0]}` : ""}{" "}
+    84→            <span aria-hidden className="inline-block origin-bottom-right animate-[wave_2.4s_ease-in-out_1]">{g.icon}</span>
+    85→          </h1>
+    86→          <p className="mt-1 text-sm text-muted-foreground">{g.line}</p>
+    87→          <p className="mt-0.5 text-xs text-muted-foreground/80">
+    88→            {now
+    89→              ? new Intl.DateTimeFormat(localeFor(profileBrief?.language ?? "en"), {
+    90→                  weekday: "long",
+    91→                  day: "numeric",
+    92→                  month: "long",
+    93→                }).format(now)
+    94→              : ""}
+    95→          </p>
+    96→        </div>
+    97→
+    98→        <figure className="relative rounded-2xl border bg-background/80 p-3.5 shadow-sm backdrop-blur-sm lg:max-w-64">
+    99→          <Quote className="absolute -left-2 -top-2 h-5 w-5 rounded-full bg-primary/15 p-1 text-primary" aria-hidden />
+   100→          <blockquote className="text-[13px] font-medium italic leading-snug text-foreground/90">
+   101→            &ldquo;Food is not just fuel, it&apos;s information for your body.&rdquo;
+   102→          </blockquote>
+   103→          <figcaption className="mt-1.5 text-right text-[11px] text-muted-foreground">— Dr. Mark Hyman</figcaption>
+   104→        </figure>
+   105→      </div>
+   106→    </div>
+   107→  );
+   108→}
+   109→
+   110→/* ------------------------------------------------------------------ */
+   111→/* Your Health Matters — feature card                                  */
+   112→/* ------------------------------------------------------------------ */
+   113→
+   114→function HealthMattersCard() {
+   115→  const setView = useNutriStore((s) => s.setView);
+   116→  const requestLogger = useNutriStore((s) => s.requestLogger);
+   117→
+   118→  return (
+   119→    <Card className="relative overflow-hidden border-primary/15 shadow-sm">
+   120→      <CardContent className="p-0">
+   121→        <div className="relative h-36 overflow-hidden sm:h-40">
+   122→          <img
+   123→            src="/images/hero-bowl.png"
+   124→            alt="Colorful healthy bowl with chickpeas, avocado and fresh vegetables"
+   125→            className="h-full w-full object-cover"
+   126→          />
+   127→          <div aria-hidden className="absolute inset-0 bg-gradient-to-t from-card via-card/20 to-transparent" />
+   128→          <p
+   129→            aria-hidden
+   130→            className="absolute bottom-2 right-3 rotate-[-4deg] font-[cursive] text-[13px] font-semibold leading-tight text-primary/80"
+   131→          >
+   132→            Healthy Today,
+   133→            <br />
+   134→            Brighter Tomorrow ♡
+   135→          </p>
+   136→        </div>
+   137→        <div className="space-y-3 p-4">
+   138→          <div>
+   139→            <h2 className="text-lg font-extrabold leading-tight">Your Health Matters</h2>
+   140→            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+   141→              Personalized nutrition. Backed by science. Powered by AI.
+   142→            </p>
+   143→          </div>
+   144→          <Button
+   145→            className="w-full gap-2 shadow-md shadow-primary/20 transition-all active:scale-[0.98]"
+   146→            onClick={() => {
+   147→              requestLogger({ tab: "photo" });
+   148→              setView("log");
+   149→            }}
+   150→          >
+   151→            <Camera className="h-4 w-4" aria-hidden /> Log a Meal <ArrowRight className="h-4 w-4" aria-hidden />
+   152→          </Button>
+   153→        </div>
+   154→      </CardContent>
+   155→    </Card>
+   156→  );
+   157→}
+   158→
+   159→/* ------------------------------------------------------------------ */
+   160→/* Today's Nutrition: ring + macro tiles                               */
+   161→/* ------------------------------------------------------------------ */
+   162→
+   163→const MACRO_TILES = [
+   164→  {
+   165→    key: "protein" as const,
+   166→    label: "Protein",
+   167→    icon: Salad,
+   168→    chip: "bg-emerald-100 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400",
+   169→    bar: "bg-gradient-to-r from-emerald-600 to-emerald-400",
+   170→    tile: "bg-emerald-50/80 dark:bg-emerald-500/[0.07]",
+   171→  },
+   172→  {
+   173→    key: "carbohydrates" as const,
+   174→    label: "Carbs",
+   175→    icon: Wheat,
+   176→    chip: "bg-amber-100 text-amber-600 dark:bg-amber-500/20 dark:text-amber-400",
+   177→    bar: "bg-gradient-to-r from-amber-500 to-amber-300",
+   178→    tile: "bg-amber-50/80 dark:bg-amber-500/[0.07]",
+   179→  },
+   180→  {
+   181→    key: "fat" as const,
+   182→    label: "Fat",
+   183→    icon: Droplet,
+   184→    chip: "bg-pink-100 text-pink-600 dark:bg-pink-500/20 dark:text-pink-400",
+   185→    bar: "bg-gradient-to-r from-pink-500 to-pink-300",
+   186→    tile: "bg-pink-50/80 dark:bg-pink-500/[0.07]",
+   187→  },
+   188→  {
+   189→    key: "fiber" as const,
+   190→    label: "Fiber",
+   191→    icon: Sparkles,
+   192→    chip: "bg-violet-100 text-violet-600 dark:bg-violet-500/20 dark:text-violet-400",
+   193→    bar: "bg-gradient-to-r from-violet-500 to-violet-300",
+   194→    tile: "bg-violet-50/80 dark:bg-violet-500/[0.07]",
+   195→  },
+   196→];
+   197→
+   198→function MacroTile({
+   199→  label,
+   200→  icon: Icon,
+   201→  chip,
+   202→  bar,
+   203→  tile,
+   204→  value,
+   205→  target,
+   206→}: {
+   207→  label: string;
+   208→  icon: React.ComponentType<{ className?: string }>;
+   209→  chip: string;
+   210→  bar: string;
+   211→  tile: string;
+   212→  value: number;
+   213→  target: number;
+   214→}) {
+   215→  const pct = target > 0 ? Math.min(100, Math.round((value / target) * 100)) : 0;
+   216→  return (
+   217→    <div className={cn("rounded-2xl p-3 transition-transform duration-200 hover:-translate-y-0.5", tile)}>
+   218→      <div className="flex items-center gap-2">
+   219→        <span className={cn("flex h-7 w-7 items-center justify-center rounded-full", chip)}>
+   220→          <Icon className="h-3.5 w-3.5" />
+   221→        </span>
+   222→        <span className="text-xs font-semibold">{label}</span>
+   223→      </div>
+   224→      <p className="mt-2 text-sm font-bold tabular-nums">
+   225→        {formatGrams(value)} <span className="text-xs font-medium text-muted-foreground">/ {formatGrams(target)}</span>
+   226→      </p>
+   227→      <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-white/70 dark:bg-muted/60">
+   228→        <div className={cn("h-full rounded-full transition-all duration-500", bar)} style={{ width: `${pct}%` }} />
+   229→      </div>
+   230→    </div>
+   231→  );
+   232→}
+   233→
+   234→function TodaysNutrition({ summary }: { summary: DailySummaryResponse }) {
+   235→  const setView = useNutriStore((s) => s.setView);
+   236→  const dateLabel = new Date(`${summary.date}T12:00:00`).toLocaleDateString("en-GB", {
+   237→    day: "numeric",
+   238→    month: "short",
+   239→    year: "numeric",
+   240→  });
+   241→
+   242→  return (
+   243→    <Card className="border-primary/15 shadow-sm">
+   244→      <CardHeader className="flex-row items-center justify-between space-y-0 pb-3">
+   245→        <CardTitle className="flex items-center gap-2 text-base">
+   246→          <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-emerald-100 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400">
+   247→            <BarChart3 className="h-4 w-4" aria-hidden />
+   248→          </span>
+   249→          Today&apos;s Nutrition
+   250→        </CardTitle>
+   251→        <div className="flex flex-wrap items-center justify-end gap-2">
+   252→          <span className="hidden items-center gap-1.5 text-xs text-muted-foreground sm:flex">🗓️ {dateLabel}</span>
+   253→          {summary.healthConditions.map((c) => (
+   254→            <Badge key={c} variant="outline" className="border-primary/30 bg-primary/5 font-mono text-[10px]">
+   255→              {c}
+   256→            </Badge>
+   257→          ))}
+   258→          <Button variant="outline" size="sm" className="h-7 gap-1 rounded-full px-3 text-xs" onClick={() => setView("insights")}>
+   259→            View Details <ArrowRight className="h-3 w-3" aria-hidden />
+   260→          </Button>
+   261→        </div>
+   262→      </CardHeader>
+   263→      <CardContent className="grid gap-4 lg:grid-cols-[auto_minmax(0,1fr)] lg:items-center">
+   264→        <div className="mx-auto lg:mx-0">
+   265→          <CalorieRing consumed={summary.consumed.calories} target={summary.targets.calories} />
+   266→        </div>
+   267→        <div className="grid grid-cols-2 gap-2.5 xl:grid-cols-4">
+   268→          {MACRO_TILES.map((m) => (
+   269→            <MacroTile
+   270→              key={m.key}
+   271→              label={m.label}
+   272→              icon={m.icon}
+   273→              chip={m.chip}
+   274→              bar={m.bar}
+   275→              tile={m.tile}
+   276→              value={summary.consumed[m.key]}
+   277→              target={summary.targets[m.key]}
+   278→            />
+   279→          ))}
+   280→        </div>
+   281→      </CardContent>
+   282→    </Card>
+   283→  );
+   284→}
+   285→
+   286→/* ------------------------------------------------------------------ */
+   287→/* Nutrition trend — 7-day mini bar chart with dashed target           */
+   288→/* ------------------------------------------------------------------ */
+   289→
+   290→function TrendChart({ weekly }: { weekly: WeeklySummaryResponse }) {
+   291→  const [metric, setMetric] = useState<"calories" | "protein">("calories");
+   292→  const target = metric === "calories" ? weekly.targets.calories : weekly.targets.protein;
+   293→
+   294→  const data = weekly.days.map((d) => ({
+   295→    label: new Date(`${d.date}T12:00:00`).toLocaleDateString("en-GB", { weekday: "short" }),
+   296→    value: metric === "calories" ? Math.round(d.calories) : Math.round(d.protein),
+   297→    onTarget: d.onTarget,
+   298→    isToday: d.date === todayKey(),
+   299→  }));
+   300→
+   301→  return (
+   302→    <Card className="border-primary/15 shadow-sm">
+   303→      <CardHeader className="flex-row items-start justify-between space-y-0 pb-2">
+   304→        <div>
+   305→          <CardTitle className="flex items-center gap-2 text-base">
+   306→            <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-emerald-100 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400">
+   307→              <BarChart3 className="h-4 w-4" aria-hidden />
+   308→            </span>
+   309→            Nutrition Trend
+   310→          </CardTitle>
+   311→          <CardDescription className="mt-1">Your {metric} intake over the last 7 days</CardDescription>
+   312→        </div>
+   313→        <div role="group" aria-label="Trend metric" className="flex overflow-hidden rounded-lg border text-xs">
+   314→          {(["calories", "protein"] as const).map((m) => (
+   315→            <button
+   316→              key={m}
+   317→              type="button"
+   318→              onClick={() => setMetric(m)}
+   319→              aria-pressed={metric === m}
+   320→              className={cn(
+   321→                "px-2.5 py-1 font-medium capitalize transition-colors",
+   322→                metric === m ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:bg-muted",
+   323→              )}
+   324→            >
+   325→              {m}
+   326→            </button>
+   327→          ))}
+   328→        </div>
+   329→      </CardHeader>
+   330→      <CardContent>
+   331→        <div className="h-44" role="img" aria-label={`Bar chart of ${metric} for the last 7 days with a target line at ${target}`}>
+   332→          <TrendBars data={data} target={target} />
+   333→        </div>
+   334→        <p className="mt-1 text-center text-[11px] text-muted-foreground">
+   335→          Target {target.toLocaleString()} {metric === "calories" ? "kcal" : "g"} · dashed line
+   336→        </p>
+   337→      </CardContent>
+   338→    </Card>
+   339→  );
+   340→}
+   341→
+   342→/** Hand-rolled flex bar chart (lighter than a chart lib for this compact card). */
+   343→function TrendBars({
+   344→  data,
+   345→  target,
+   346→}: {
+   347→  data: { label: string; value: number; onTarget: boolean; isToday: boolean }[];
+   348→  target: number;
+   349→}) {
+   350→  const max = Math.max(target * 1.15, ...data.map((d) => d.value), 1);
+   351→  return (
+   352→    <div className="relative flex h-full items-end gap-2 pt-3">
+   353→      {/* target dashed line */}
+   354→      <div
+   355→        aria-hidden
+   356→        className="absolute inset-x-0 border-t-2 border-dashed border-orange-400/80"
+   357→        style={{ bottom: `${(target / max) * 100}%` }}
+   358→      >
+   359→        <span className="absolute -top-2.5 right-0 rounded bg-orange-400/90 px-1.5 py-0.5 text-[9px] font-semibold text-white">
+   360→          Target {target.toLocaleString()}
+   361→        </span>
+   362→      </div>
+   363→      {data.map((d) => {
+   364→        const h = Math.max(2, (d.value / max) * 100);
+   365→        return (
+   366→          <div key={d.label} className="group flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-1">
+   367→            <span className="text-[9px] font-medium tabular-nums text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
+   368→              {d.value.toLocaleString()}
+   369→            </span>
+   370→            <div
+   371→              className={cn(
+   372→                "w-full max-w-9 rounded-t-md transition-all duration-500 group-hover:brightness-110",
+   373→                d.value === 0
+   374→                  ? "bg-muted"
+   375→                  : d.isToday
+   376→                    ? "bg-gradient-to-t from-emerald-600 to-emerald-400 shadow-md shadow-emerald-600/25"
+   377→                    : d.onTarget
+   378→                      ? "bg-gradient-to-t from-emerald-500/85 to-emerald-300/85"
+   379→                      : "bg-emerald-200/80 dark:bg-emerald-500/35",
+   380→              )}
+   381→              style={{ height: `${h}%` }}
+   382→              title={`${d.label}: ${d.value.toLocaleString()}`}
+   383→            />
+   384→            <span className={cn("text-[10px]", d.isToday ? "font-bold text-foreground" : "text-muted-foreground")}>{d.label}</span>
+   385→          </div>
+   386→        );
+   387→      })}
+   388→    </div>
+   389→  );
+   390→}
+   391→
+   392→/* ------------------------------------------------------------------ */
+   393→/* Recent meals — photo card strip                                     */
+   394→/* ------------------------------------------------------------------ */
+   395→
+   396→function RecentMealStrip({ data }: { data: RecentMealsResponse }) {
+   397→  const setView = useNutriStore((s) => s.setView);
+   398→  const cards = data.meals.slice(0, 4);
+   399→
+   400→  return (
+   401→    <Card className="border-primary/15 shadow-sm">
+   402→      <CardHeader className="flex-row items-center justify-between space-y-0 pb-2">
+   403→        <CardTitle className="flex items-center gap-2 text-base">
+   404→          <span className="text-base" aria-hidden>🍽️</span> Recent Meals
+   405→        </CardTitle>
+   406→        <div className="flex items-center gap-2">
+   407→          <Badge variant="secondary" className="rounded-full bg-primary/10 text-[10px] font-medium text-primary">
+   408→            {data.count} meal{data.count === 1 ? "" : "s"} logged
+   409→          </Badge>
+   410→          <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs text-primary" onClick={() => setView("meals")}>
+   411→            View All <ArrowRight className="h-3 w-3" aria-hidden />
+   412→          </Button>
+   413→        </div>
+   414→      </CardHeader>
+   415→      <CardContent>
+   416→        {cards.length === 0 ? (
+   417→          <p className="rounded-xl border border-dashed bg-muted/30 p-4 text-center text-sm text-muted-foreground">
+   418→            No meals yet — your logged meals will appear here as photo cards.
+   419→          </p>
+   420→        ) : (
+   421→          <ul className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+   422→            {cards.map((m) => {
+   423→              const firstFood = m.foods[0]?.name ?? "";
+   424→              const img = mealImageFor(...m.foods.map((f) => f.name));
+   425→              const time = new Date(m.eatenAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+   426→              return (
+   427→                <li key={m.id}>
+   428→                  <button
+   429→                    type="button"
+   430→                    onClick={() => setView("meals")}
+   431→                    aria-label={`${m.mealType}: ${firstFood || "meal"}, ${time}, ${formatKcal(m.totals.calories)}`}
+   432→                    className="group w-full overflow-hidden rounded-2xl border bg-card text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-2 focus-visible:outline-ring"
+   433→                  >
+   434→                    <div className="relative h-20 overflow-hidden sm:h-24">
+   435→                      <img
+   436→                        src={img}
+   437→                        alt=""
+   438→                        aria-hidden
+   439→                        className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+   440→                      />
+   441→                      <span className="absolute bottom-1.5 left-1.5 rounded-md bg-background/85 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 backdrop-blur-sm dark:text-emerald-400">
+   442→                        {formatKcal(m.totals.calories)}
+   443→                      </span>
+   444→                    </div>
+   445→                    <div className="p-2">
+   446→                      <p className="text-[10px] font-medium capitalize text-muted-foreground">
+   447→                        {MEAL_TYPE_ICON[m.mealType]} {m.mealType}
+   448→                      </p>
+   449→                      <p className="mt-0.5 flex items-center justify-between gap-1 truncate text-xs font-semibold">
+   450→                        <span className="truncate">{firstFood || "Meal"}</span>
+   451→                        <ChevronRight
+   452→                          className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5"
+   453→                          aria-hidden
+   454→                        />
+   455→                      </p>
+   456→                      <p className="mt-0.5 text-[10px] text-muted-foreground">⏱ {time}</p>
+   457→                    </div>
+   458→                  </button>
+   459→                </li>
+   460→              );
+   461→            })}
+   462→          </ul>
+   463→        )}
+   464→      </CardContent>
+   465→    </Card>
+   466→  );
+   467→}
+   468→
+   469→/* ------------------------------------------------------------------ */
+   470→/* Insight & tip — constraint-derived, with deterministic fallbacks    */
+   471→/* ------------------------------------------------------------------ */
+   472→
+   473→const FALLBACK_TIPS = [
+   474→  { text: "Prefer fibre-rich foods to blunt post-meal glucose excursions.", source: "ADA Standards of Care 2024" },
+   475→  { text: "Distribute carbohydrates evenly across meals to avoid large spikes.", source: "ADA Standards of Care 2024" },
+   476→  { text: "Aim for a fistful of vegetables at every meal — fibre first, then protein.", source: "WHO healthy diet guidance" },
+   477→  { text: "Keep added salts modest — flavour with spices, herbs and citrus instead.", source: "WHO sodium guideline" },
+   478→];
+   479→
+   480→function InsightTipCard({ summary }: { summary: DailySummaryResponse | null }) {
+   481→  const violation = summary?.compliance.violations[0];
+   482→  const dayIndex = new Date().getDate();
+   483→  const tip = violation
+   484→    ? { text: violation.message, source: violation.evidenceSource, condition: violation.condition }
+   485→    : { ...FALLBACK_TIPS[dayIndex % FALLBACK_TIPS.length], condition: summary?.healthConditions[0] };
+   486→
+   487→  return (
+   488→    <Card className="relative overflow-hidden border-amber-300/50 bg-gradient-to-br from-amber-100/80 via-amber-50/60 to-card shadow-sm dark:border-amber-500/25 dark:from-amber-500/10 dark:via-amber-500/5 dark:to-card">
+   489→      <div aria-hidden className="pointer-events-none absolute -bottom-8 -right-8 h-32 w-32 rounded-full bg-amber-300/25 blur-2xl" />
+   490→      <CardHeader className="pb-2">
+   491→        <CardTitle className="flex items-center gap-2 text-base">
+   492→          <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-amber-200/80 text-amber-600 dark:bg-amber-500/20 dark:text-amber-400">
+   493→            <Lightbulb className="h-4 w-4" aria-hidden />
+   494→          </span>
+   495→          Insights &amp; Tips
+   496→        </CardTitle>
+   497→      </CardHeader>
+   498→      <CardContent className="space-y-3">
+   499→        <p className="text-sm font-medium leading-relaxed text-foreground/90">{tip.text}</p>
+   500→        <div className="flex flex-wrap items-center gap-2">
+   501→          {tip.condition && (
+   502→            <Badge variant="outline" className="border-amber-500/40 bg-background/70 font-mono text-[10px]">
+   503→              {tip.condition}
+   504→            </Badge>
+   505→          )}
+   506→          <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+   507→            <BookOpenCheck className="h-3 w-3" aria-hidden /> {tip.source}
+   508→          </span>
+   509→        </div>
+   510→      </CardContent>
+   511→    </Card>
+   512→  );
+   513→}
+   514→
+   515→/* ------------------------------------------------------------------ */
+   516→/* Quick actions — open the logger in a specific mode                  */
+   517→/* ------------------------------------------------------------------ */
+   518→
+   519→const ACTIONS = [
+   520→  {
+   521→    key: "photo",
+   522→    label: "Take a Photo",
+   523→    hint: "Snap your meal",
+   524→    icon: Camera,
+   525→    tile: "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-500/25 dark:bg-emerald-500/10 dark:text-emerald-400 dark:hover:bg-emerald-500/20",
+   526→    req: { tab: "photo" as const, openFile: true },
+   527→  },
+   528→  {
+   529→    key: "upload",
+   530→    label: "Upload Image",
+   531→    hint: "Choose from gallery",
+   532→    icon: ImageIcon,
+   533→    tile: "border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100 dark:border-sky-500/25 dark:bg-sky-500/10 dark:text-sky-400 dark:hover:bg-sky-500/20",
+   534→    req: { tab: "photo" as const, openFile: true },
+   535→  },
+   536→  {
+   537→    key: "text",
+   538→    label: "Enter Food Text",
+   539→    hint: "Type in any language",
+   540→    icon: Keyboard,
+   541→    tile: "border-teal-200 bg-teal-50 text-teal-700 hover:bg-teal-100 dark:border-teal-500/25 dark:bg-teal-500/10 dark:text-teal-400 dark:hover:bg-teal-500/20",
+   542→    req: { tab: "text" as const },
+   543→  },
+   544→  {
+   545→    key: "voice",
+   546→    label: "Use Voice",
+   547→    hint: "Speak your meal",
+   548→    icon: Mic,
+   549→    tile: "border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 dark:border-rose-500/25 dark:bg-rose-500/10 dark:text-rose-400 dark:hover:bg-rose-500/20",
+   550→    req: { tab: "text" as const, voice: true },
+   551→  },
+   552→];
+   553→
+   554→function QuickActions() {
+   555→  const setView = useNutriStore((s) => s.setView);
+   556→  const requestLogger = useNutriStore((s) => s.requestLogger);
+   557→
+   558→  return (
+   559→    <Card className="border-primary/15 shadow-sm">
+   560→      <CardHeader className="pb-2">
+   561→        <CardTitle className="flex items-center gap-2 text-base">
+   562→          <span className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-dashed border-primary/50 text-primary">
+   563→            <Sparkles className="h-3.5 w-3.5" aria-hidden />
+   564→          </span>
+   565→          Quick Actions
+   566→        </CardTitle>
+   567→      </CardHeader>
+   568→      <CardContent className="grid grid-cols-2 gap-2.5">
+   569→        {ACTIONS.map((a) => (
+   570→          <button
+   571→            key={a.key}
+   572→            type="button"
+   573→            onClick={() => {
+   574→              requestLogger(a.req);
+   575→              setView("log");
+   576→            }}
+   577→            className={cn(
+   578→              "flex flex-col items-center gap-1.5 rounded-2xl border p-3 text-center transition-all duration-150 hover:-translate-y-0.5 active:scale-[0.97] focus-visible:outline-2 focus-visible:outline-ring",
+   579→              a.tile,
+   580→            )}
+   581→          >
+   582→            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-background/80 shadow-sm">
+   583→              <a.icon className="h-5 w-5" />
+   584→            </span>
+   585→            <span className="text-xs font-bold leading-tight">{a.label}</span>
+   586→            <span className="text-[10px] leading-tight opacity-80">{a.hint}</span>
+   587→          </button>
+   588→        ))}
+   589→      </CardContent>
+   590→    </Card>
+   591→  );
+   592→}
+   593→
+   594→/* ------------------------------------------------------------------ */
+   595→/* Bottom banner                                                       */
+   596→/* ------------------------------------------------------------------ */
+   597→
+   598→function BottomBanner() {
+   599→  const setView = useNutriStore((s) => s.setView);
+   600→  return (
+   601→    <div className="relative overflow-hidden rounded-3xl border border-primary/15 bg-gradient-to-r from-emerald-100/70 via-background to-background shadow-sm dark:border-primary/20 dark:from-emerald-500/10">
+   602→      <div
+   603→        aria-hidden
+   604→        className="absolute inset-y-0 right-0 hidden w-1/2 bg-cover bg-center opacity-90 [mask-image:linear-gradient(to_left,black_55%,transparent)] sm:block dark:opacity-40"
+   605→        style={{ backgroundImage: "url(/images/banner-vegetables.png)" }}
+   606→      />
+   607→      <div className="relative flex flex-col gap-4 p-5 sm:p-6 lg:flex-row lg:items-center lg:justify-between">
+   608→        <div>
+   609→          <h2 className="text-xl font-extrabold leading-tight sm:text-2xl">
+   610→            Good Food
+   611→            <br />
+   612→            Brighter Days
+   613→          </h2>
+   614→          <p className="mt-1 text-xs text-muted-foreground">Personalized nutrition for a healthier, happier you.</p>
+   615→        </div>
+   616→        <ul className="flex flex-wrap gap-x-5 gap-y-2 text-[11px] text-muted-foreground lg:max-w-md">
+   617→          {["Science-backed guidance", "Personalized for your health", "Supports Indian dietary preferences"].map((t) => (
+   618→            <li key={t} className="flex items-center gap-1.5">
+   619→              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/15 text-primary" aria-hidden>
+   620→                <Sparkles className="h-3 w-3" />
+   621→              </span>
+   622→              {t}
+   623→            </li>
+   624→          ))}
+   625→        </ul>
+   626→        <Button size="lg" className="gap-2 shadow-md shadow-primary/20 transition-all active:scale-[0.98]" onClick={() => setView("goals")}>
+   627→          Stay Consistent <ArrowRight className="h-4 w-4" aria-hidden />
+   628→        </Button>
+   629→      </div>
+   630→    </div>
+   631→  );
+   632→}
+   633→
+   634→/* ------------------------------------------------------------------ */
+   635→/* View assembly                                                       */
+   636→/* ------------------------------------------------------------------ */
+   637→
+   638→export function HomeView() {
+   639→  const dataVersion = useNutriStore((s) => s.dataVersion);
+   640→  const [summary, setSummary] = useState<DailySummaryResponse | null>(null);
+   641→  const [weekly, setWeekly] = useState<WeeklySummaryResponse | null>(null);
+   642→  const [recent, setRecent] = useState<RecentMealsResponse | null>(null);
+   643→  const [error, setError] = useState<string | null>(null);
+   644→  const [loading, setLoading] = useState(true);
+   645→
+   646→  const refresh = useCallback(() => {
+   647→    let alive = true;
+   648→    Promise.all([api.dailySummary(todayKey()), api.weeklySummary(), api.recentMeals()])
+   649→      .then(([s, w, r]) => {
+   650→        if (!alive) return;
+   651→        setSummary(s);
+   652→        setWeekly(w);
+   653→        setRecent(r);
+   654→        setError(null);
+   655→        setLoading(false);
+   656→      })
+   657→      .catch(() => {
+   658→        if (!alive) return;
+   659→        setError("Could not load your dashboard data.");
+   660→        setLoading(false);
+   661→      });
+   662→    return () => {
+   663→      alive = false;
+   664→    };
+   665→  }, []);
+   666→
+   667→  useEffect(() => {
+   668→    return refresh();
+   669→  }, [refresh, dataVersion]);
+   670→
+   671→  return (
+   672→    <div className="space-y-5">
+   673→      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_300px]">
+   674→        <div className="min-w-0 space-y-5">
+   675→          <FadeIn>
+   676→            <HeroBanner />
+   677→          </FadeIn>
+   678→
+   679→          {error && (
+   680→            <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">
+   681→              {error}
+   682→            </p>
+   683→          )}
+   684→
+   685→          {loading && !summary && (
+   686→            <div className="space-y-5" aria-hidden>
+   687→              <Skeleton className="h-44 w-full rounded-3xl" />
+   688→              <Skeleton className="h-40 w-full rounded-3xl" />
+   689→            </div>
+   690→          )}
+   691→
+   692→          {summary && (
+   693→            <FadeIn delay={0.05}>
+   694→              <TodaysNutrition summary={summary} />
+   695→            </FadeIn>
+   696→          )}
+   697→
+   698→          <div className="grid gap-5 lg:grid-cols-2">
+   699→            {weekly ? (
+   700→              <FadeIn delay={0.1}>
+   701→                <TrendChart weekly={weekly} />
+   702→              </FadeIn>
+   703→            ) : (
+   704→              <Skeleton className="h-64 rounded-2xl" aria-hidden />
+   705→            )}
+   706→            <FadeIn delay={0.12}>
+   707→              <RecommendationCard />
+   708→            </FadeIn>
+   709→          </div>
+   710→
+   711→          <div className="grid gap-5 lg:grid-cols-2">
+   712→            {recent ? (
+   713→              <FadeIn delay={0.15}>
+   714→                <RecentMealStrip data={recent} />
+   715→              </FadeIn>
+   716→            ) : (
+   717→              <Skeleton className="h-56 rounded-2xl" aria-hidden />
+   718→            )}
+   719→            <FadeIn delay={0.17}>
+   720→              <InsightTipCard summary={summary} />
+   721→            </FadeIn>
+   722→          </div>
+   723→        </div>
+   724→
+   725→        <aside className="space-y-5" aria-label="Daily shortcuts">
+   726→          <FadeIn delay={0.06}>
+   727→            <HealthMattersCard />
+   728→          </FadeIn>
+   729→          <FadeIn delay={0.1}>
+   730→            <QuickActions />
+   731→          </FadeIn>
+   732→          <FadeIn delay={0.14}>
+   733→            <HydrationWidget />
+   734→          </FadeIn>
+   735→        </aside>
+   736→      </div>
+   737→
+   738→      <FadeIn delay={0.2}>
+   739→        <BottomBanner />
+   740→      </FadeIn>
+   741→    </div>
+   742→  );
+   743→}
+   744→
