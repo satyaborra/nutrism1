@@ -574,3 +574,25 @@ Stage Summary:
 - The official NutriSLM logo is now the brand identity everywhere: browser tab favicon, PWA/install icons (incl. maskable), OG share image, login screen (header + brand panel), dashboard sidebar, mobile top bar + drawer, app footer, bootstrap splash, and Settings About. Old Z.ai logo fully removed.
 - Files: public/images/nutrislm-logo{,-mark,-mark-white}.png, public/icons/* (4 regenerated), src/app/layout.tsx, src/components/nutrislm/{app-shell,app,auth-view}.tsx, views/settings-view.tsx, scripts/gen-logo.js (new, lint-ignored), eslint.config.mjs (scripts ignore).
 - Rebuild the zip after this entry (public/nutrislm-project.zip).
+
+---
+Task ID: 32
+Agent: Z.ai Code (main, coordinator)
+Task: "fix this correctly the login page, build like this properly please" — user re-sent the login mockup (upload/login.png) asking for an exact, proper build.
+
+Work Log:
+- Diffed live login vs mockup; gaps found: duplicate brand in a flow BareShell top bar (mockup has none — brand lives INSIDE the panel, larger), small rotated bowl sticker instead of the mockup's full-height photo bleeding at the panel's right edge, no wavy trust strip, narrow 50/50 split, undersized headline/brand, narrow max-w-md card, small pill-less social buttons.
+- app-shell.tsx BareShell rebuilt: header is now an absolute overlay holding ONLY ThemeToggle (no duplicate brand), main widened to max-w-[1400px] + pt-4 so the auth card fills the viewport like the mockup, root gets overflow-x-clip (killed the pre-existing +96px decorative-blob scrollWidth overflow flagged since 29-a). Splash unaffected visually.
+- auth-view.tsx left panel rebuilt (auth logic untouched 1:1):
+  * Brand lockup: chipless transparent emblem img h-16 + text-[1.7rem] wordmark + tagline.
+  * Full-height hero photo: /images/hero-bowl.png absolute inset-y-0 right-0 w-[45%], object-cover, left-edge mask [mask-image:linear-gradient(to_left,black_42%,transparent_88%)] (dark: opacity-35 + earlier fade) — blends into the panel like the mockup.
+  * font-script "Small Changes / Big Impact" annotation + hand-drawn curved-arrow SVG over the photo's masked edge.
+  * Headline enlarged to lg:text-[2.7rem] xl:text-[3.1rem], Sprout→Leaf after "Brighter Days", content column lg:max-w-[58%] (fixed the 3-line wrap).
+  * Script accent "Good Food / Brighter Days ❤" with SVG underline swoosh, pushed above the wave (pb-28/xl:pb-32).
+  * Wavy trust strip: two stacked SVG waves (emerald-100 layers, dark: emerald-900 tints) pinned to the panel bottom with the 3 TRUST items absolutely positioned inside it (justify-between, bg-primary/15 chips).
+- Right column: mint stage bg-[#f2f7ef] (dark: card), card max-w-lg rounded-[1.75rem] p-9, heading sm:text-[2rem], social buttons h-12 rounded-full, all inputs h-12 rounded-xl bg-white, below-card tagline now flanked by hairlines.
+- Verification: lint clean; tsc src clean; browser at 1440×900 — layout matches the mockup element-for-element (lockup, eyebrow, 2-line headline, 3 features, script+swoosh, wave+trust, photo bleed, annotation, card stack); demo login → dashboard h1 OK; register tab mounts all 3 fields (NOTE: Radix tabs activate on mousedown — agent-browser `.click()` alone can't switch them; dispatch full pointer/mouse sequence when testing); dark mode full coverage (photo dimmed, waves subtle, all text readable); 390px mobile "no overflow" (BareShell clip fix) + clean stacking; 0 console errors; / 200s in dev.log.
+
+Stage Summary:
+- Login screen now matches the mockup properly: no duplicate top bar, real-logo brand lockup, full-height masked bowl photo with handwritten annotation, wavy trust strip, bigger headline, wider mint-stage card with pill social buttons and taller inputs — all auth logic (login/register/demo/social/forgot toasts, validation, error alert) preserved.
+- Files: src/components/nutrislm/auth-view.tsx, src/components/nutrislm/app-shell.tsx (BareShell only). Zip rebuilt after this entry.

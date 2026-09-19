@@ -472,21 +472,14 @@ function MobileAccountBlock() {
 /** Full-screen wrapper used for the signed-out state (no sidebar chrome). */
 export function BareShell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="relative flex min-h-screen flex-col bg-[#eef2e6] dark:bg-background">
+    <div className="relative flex min-h-screen flex-col overflow-x-clip bg-[#eef2e6] dark:bg-background">
       <div aria-hidden className="pointer-events-none absolute -left-24 -top-24 h-72 w-72 rounded-full bg-primary/10 blur-3xl" />
       <div aria-hidden className="pointer-events-none absolute -bottom-24 -right-24 h-72 w-72 rounded-full bg-teal-500/10 blur-3xl" />
-      <header className="relative z-10 mx-auto flex h-14 w-full max-w-6xl items-center justify-between px-4">
-        <a href="/" className="flex items-center gap-2">
-          <span className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-xl bg-white p-0.5 shadow-md ring-1 ring-emerald-900/10 dark:ring-white/15">
-            <img src="/images/nutrislm-logo-mark.png" alt="" className="h-full w-full object-contain" aria-hidden />
-          </span>
-          <span className="text-lg font-extrabold tracking-tight">
-            Nutri<span className="text-primary">SLM</span>
-          </span>
-        </a>
+      {/* floating theme toggle only — the auth view carries the brand itself */}
+      <header className="absolute inset-x-0 top-0 z-20 flex h-14 items-center justify-end px-4 sm:px-6">
         <ThemeToggle />
       </header>
-      <main className="relative z-10 mx-auto flex w-full max-w-6xl flex-1 flex-col px-4 pb-10">{children}</main>
+      <main className="relative z-10 mx-auto flex w-full max-w-[1400px] flex-1 flex-col px-4 pb-10 pt-4">{children}</main>
       <footer className="relative z-10 mx-auto w-full max-w-6xl px-4 pb-6 text-center text-[11px] text-muted-foreground">
         Not medical advice. Constraints are configurable starting points — confirm clinical targets with your care team.
       </footer>

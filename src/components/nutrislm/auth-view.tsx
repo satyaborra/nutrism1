@@ -151,7 +151,7 @@ export function AuthView() {
   }
 
   return (
-    <div className="grid w-full flex-1 grid-cols-1 overflow-hidden rounded-3xl border border-border/70 bg-white shadow-xl shadow-primary/5 lg:grid-cols-2 dark:border-primary/15 dark:bg-card">
+    <div className="relative grid w-full flex-1 grid-cols-1 overflow-hidden rounded-3xl border border-border/70 bg-white shadow-xl shadow-primary/5 lg:grid-cols-[1.15fr_1fr] dark:border-primary/15 dark:bg-card">
       {/* ------------------------------ LEFT: brand panel ------------------------------ */}
       <FadeIn className="relative flex flex-col gap-4 overflow-hidden bg-gradient-to-br from-emerald-50 via-white to-emerald-50/50 p-6 sm:p-8 lg:justify-between lg:gap-6 lg:p-10 xl:p-12 dark:from-emerald-950/50 dark:via-background dark:to-emerald-950/20">
         {/* decorative blurred leaf shapes */}
@@ -162,47 +162,65 @@ export function AuthView() {
           <Leaf className="absolute right-1/4 top-8 h-24 w-24 rotate-45 text-primary/5" strokeWidth={1} />
         </div>
 
-        {/* hero bowl blob on the right edge (desktop only) */}
-        <div aria-hidden className="pointer-events-none absolute -right-28 top-1/2 hidden -translate-y-1/2 lg:block">
-          <p className="font-script absolute -left-20 -top-[9rem] w-40 -rotate-6 text-2xl font-semibold leading-[1.1] text-primary">
-            Small Changes Big Impact
-          </p>
+        {/* full-height hero photo bleeding at the panel's right edge (desktop) */}
+        <div aria-hidden className="pointer-events-none absolute inset-y-0 right-0 hidden w-[45%] lg:block">
           <img
             src="/images/hero-bowl.png"
             alt=""
-            className="h-56 w-56 rotate-3 rounded-[3rem] object-cover shadow-xl ring-4 ring-white/70 xl:h-64 xl:w-64 dark:ring-card/80"
+            className="h-full w-full object-cover [mask-image:linear-gradient(to_left,black_42%,transparent_88%)] dark:opacity-35 dark:[mask-image:linear-gradient(to_left,black_35%,transparent_82%)]"
           />
+          <p className="font-script absolute left-1 top-[36%] w-32 -rotate-6 text-[1.3rem] font-semibold leading-[1.15] text-primary">
+            Small
+            <br />
+            Changes
+            <br />
+            Big Impact
+          </p>
+          <svg
+            viewBox="0 0 36 44"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.4"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="absolute left-14 top-[64%] h-10 w-8 -rotate-12 text-primary/60"
+          >
+            <path d="M19 4 C 9 15, 27 25, 20 35" />
+            <path d="M13 29 L 20 36 L 27 27" />
+          </svg>
         </div>
 
-        {/* logo */}
-        <div className="relative flex items-center gap-3">
-          <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-white p-1 shadow-md ring-1 ring-emerald-900/10 dark:ring-white/15">
-            <img src="/images/nutrislm-logo-mark.png" alt="" className="h-full w-full object-contain" aria-hidden />
-          </span>
+        {/* logo lockup */}
+        <div className="relative flex items-center gap-3.5">
+          <img
+            src="/images/nutrislm-logo-mark.png"
+            alt="NutriSLM logo"
+            className="h-16 w-16 shrink-0 object-contain drop-shadow-sm"
+          />
           <span>
-            <span className="block text-lg font-extrabold leading-tight tracking-tight text-emerald-950 dark:text-emerald-50">
+            <span className="block text-[1.7rem] font-extrabold leading-none tracking-tight text-emerald-950 dark:text-emerald-50">
               Nutri<span className="text-primary">SLM</span>
             </span>
-            <span className="block whitespace-nowrap text-[10.5px] leading-tight text-muted-foreground">
+            <span className="mt-1.5 block whitespace-nowrap text-xs font-medium text-muted-foreground">
               Eat Smarter • Live Healthier
             </span>
           </span>
         </div>
 
         {/* headline + features */}
-        <div className="relative lg:max-w-[20rem] xl:max-w-[21.5rem]">
+        <div className="relative lg:max-w-[58%]">
           <p className="hidden text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground lg:block">
             Your personal nutrition companion
           </p>
-          <p className="mt-3 text-3xl font-extrabold leading-[1.08] tracking-tight text-emerald-950 sm:text-4xl lg:text-[2.35rem] xl:text-[2.6rem] dark:text-emerald-50">
+          <p className="mt-3 text-3xl font-extrabold leading-[1.06] tracking-tight text-emerald-950 sm:text-4xl lg:text-[2.7rem] xl:text-[3.1rem] dark:text-emerald-50">
             Better Food
             <br />
             <span className="whitespace-nowrap text-primary">
               Brighter Days
-              <Sprout className="ml-1.5 inline h-7 w-7 lg:h-8 lg:w-8" aria-hidden />
+              <Leaf className="ml-2 inline h-8 w-8 lg:h-9 lg:w-9" aria-hidden />
             </span>
           </p>
-          <p className="mt-4 hidden text-sm leading-relaxed text-muted-foreground lg:block">
+          <p className="mt-4 text-sm leading-relaxed text-muted-foreground lg:mt-5">
             Log your meals, get AI-powered insights, and receive personalized nutrition guidance — built on trusted
             science, for a healthier you.
           </p>
@@ -221,42 +239,68 @@ export function AuthView() {
           </ul>
         </div>
 
-        {/* script accent + trust strip */}
-        <div className="relative hidden lg:block">
-          <p className="font-script origin-left -rotate-2 text-3xl font-semibold leading-[1.15] text-primary">
+        {/* script accent (sits just above the wave) */}
+        <div className="relative hidden pb-28 lg:block xl:pb-32">
+          <p className="font-script origin-left -rotate-2 text-[1.9rem] font-semibold leading-[1.12] text-primary">
             Good Food
             <br />
             Brighter Days <Heart className="inline h-5 w-5 fill-primary text-primary" aria-hidden />
           </p>
-          <ul className="mt-5 flex flex-wrap items-center gap-x-7 gap-y-3">
-            {TRUST.map(({ icon: Icon, line1, line2 }) => (
-              <li key={line1} className="flex items-center gap-2.5">
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-                  <Icon className="h-4 w-4" aria-hidden />
-                </span>
-                <span className="text-[11px] leading-tight">
-                  <span className="block font-semibold text-foreground/80">{line1}</span>
-                  <span className="block text-muted-foreground">{line2}</span>
-                </span>
-              </li>
-            ))}
-          </ul>
+          <svg
+            viewBox="0 0 230 14"
+            fill="none"
+            aria-hidden
+            className="ml-1 mt-1 h-3 w-52 -rotate-2 text-primary/60"
+          >
+            <path d="M3 10 C 60 3, 150 2, 227 7" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+          </svg>
         </div>
+
+        {/* wavy trust strip pinned to the bottom */}
+        <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 hidden lg:block">
+          <svg
+            viewBox="0 0 1440 200"
+            preserveAspectRatio="none"
+            className="h-48 w-full text-emerald-100/60 dark:text-emerald-900/20"
+          >
+            <path fill="currentColor" d="M0,120 C260,30 520,190 780,120 C1040,50 1240,160 1440,90 L1440,200 L0,200 Z" />
+          </svg>
+          <svg
+            viewBox="0 0 1440 200"
+            preserveAspectRatio="none"
+            className="absolute inset-x-0 bottom-0 h-40 w-full text-emerald-100 dark:text-emerald-900/40"
+          >
+            <path fill="currentColor" d="M0,130 C280,190 560,40 820,100 C1080,160 1280,70 1440,110 L1440,200 L0,200 Z" />
+          </svg>
+        </div>
+        <ul className="absolute inset-x-10 bottom-7 z-10 hidden items-center justify-between gap-6 lg:flex">
+          {TRUST.map(({ icon: Icon, line1, line2 }) => (
+            <li key={line1} className="flex items-center gap-2.5">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary dark:bg-primary/20">
+                <Icon className="h-4 w-4" aria-hidden />
+              </span>
+              <span className="text-[11px] leading-tight">
+                <span className="block font-semibold text-foreground/80 dark:text-emerald-50/90">{line1}</span>
+                <span className="block text-muted-foreground">{line2}</span>
+              </span>
+            </li>
+          ))}
+        </ul>
       </FadeIn>
 
       {/* ------------------------------ RIGHT: auth card ------------------------------ */}
       <FadeIn
         delay={0.08}
-        className="relative flex items-center justify-center bg-white px-4 py-8 sm:px-8 dark:bg-card"
+        className="relative flex items-center justify-center bg-[#f2f7ef] px-4 py-8 sm:px-8 dark:bg-transparent"
       >
-        <div className="w-full max-w-md">
-          <Card className="w-full rounded-3xl border-primary/10 p-6 shadow-lg shadow-primary/5 sm:p-8 dark:border-primary/15">
+        <div className="w-full max-w-lg">
+          <Card className="w-full rounded-[1.75rem] border-primary/10 p-6 shadow-lg shadow-primary/10 sm:p-9 dark:border-primary/15">
             <Tabs defaultValue="login" className="gap-5">
               <div className="text-center">
-                <h1 className="text-2xl font-extrabold tracking-tight sm:text-3xl">
+                <h1 className="text-[1.7rem] font-extrabold tracking-tight sm:text-[2rem]">
                   Welcome to <span className="text-primary">NutriSLM</span> 🌱
                 </h1>
-                <p className="mt-1.5 text-sm text-muted-foreground">Sign in to continue your nutrition journey</p>
+                <p className="mt-2 text-sm text-muted-foreground">Sign in to continue your nutrition journey</p>
               </div>
 
               {/* rounded segmented control */}
@@ -270,11 +314,11 @@ export function AuthView() {
               </TabsList>
 
               {/* decorative social buttons (honest no-ops) */}
-              <div className="grid gap-2 sm:grid-cols-2">
+              <div className="grid gap-2.5 sm:grid-cols-2">
                 <Button
                   type="button"
                   variant="outline"
-                  className="h-11 rounded-xl text-[13px] font-medium"
+                  className="h-12 rounded-full text-[13px] font-medium"
                   onClick={() => handleSocial("Google")}
                 >
                   <GoogleG />
@@ -283,7 +327,7 @@ export function AuthView() {
                 <Button
                   type="button"
                   variant="outline"
-                  className="h-11 rounded-xl text-[13px] font-medium"
+                  className="h-12 rounded-full text-[13px] font-medium"
                   onClick={() => handleSocial("Apple")}
                 >
                   <Apple className="h-4 w-4" aria-hidden />
@@ -321,7 +365,7 @@ export function AuthView() {
                         autoComplete="email"
                         required
                         placeholder="you@example.com"
-                        className="h-11 rounded-xl pl-9"
+                        className="h-12 rounded-xl bg-white pl-9"
                         value={loginEmail}
                         onChange={(e) => setLoginEmail(e.target.value)}
                       />
@@ -342,7 +386,7 @@ export function AuthView() {
                         autoComplete="current-password"
                         required
                         placeholder="Enter your password"
-                        className="h-11 rounded-xl pl-9 pr-10"
+                        className="h-12 rounded-xl bg-white pl-9 pr-10"
                         value={loginPassword}
                         onChange={(e) => setLoginPassword(e.target.value)}
                       />
@@ -417,7 +461,7 @@ export function AuthView() {
                         maxLength={80}
                         autoComplete="name"
                         placeholder="Your name"
-                        className="h-11 rounded-xl pl-9"
+                        className="h-12 rounded-xl bg-white pl-9"
                         value={regName}
                         onChange={(e) => setRegName(e.target.value)}
                       />
@@ -438,7 +482,7 @@ export function AuthView() {
                         autoComplete="email"
                         required
                         placeholder="you@example.com"
-                        className="h-11 rounded-xl pl-9"
+                        className="h-12 rounded-xl bg-white pl-9"
                         value={regEmail}
                         onChange={(e) => setRegEmail(e.target.value)}
                       />
@@ -460,7 +504,7 @@ export function AuthView() {
                         required
                         minLength={8}
                         placeholder="At least 8 characters"
-                        className="h-11 rounded-xl pl-9 pr-10"
+                        className="h-12 rounded-xl bg-white pl-9 pr-10"
                         value={regPassword}
                         onChange={(e) => setRegPassword(e.target.value)}
                       />
@@ -527,9 +571,11 @@ export function AuthView() {
             </Tabs>
           </Card>
 
-          <p className="mt-6 flex items-center justify-center gap-2 text-sm text-muted-foreground">
+          <p className="mt-6 flex items-center justify-center gap-3 text-sm text-muted-foreground">
+            <span aria-hidden className="h-px w-8 bg-border" />
             <Leaf className="h-4 w-4 text-primary" aria-hidden />
             Eat Smarter • Live Healthier • Together
+            <span aria-hidden className="h-px w-8 bg-border" />
           </p>
         </div>
       </FadeIn>
