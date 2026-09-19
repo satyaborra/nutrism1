@@ -548,3 +548,29 @@ Stage Summary:
 - Foundation: views/view-hero.tsx (ViewHero/StatCard/Sparkline/toneStroke/Tone), donut.tsx (Donut). New asset: public/images/hero-mountains.png.
 - All prior features preserved (inline-edit validation, auto-retry, language switching, CSV export, water logging, favorites, backfill, coach, journal, SW ownership).
 - Zip rebuilt after this entry. Backlog: PWA offline shell, journal .md export, localize static strings.
+
+---
+Task ID: 31
+Agent: Z.ai Code (main, coordinator)
+Task: "add this logo for all the pages where ever it needs" — user uploaded the official NutriSLM brand logo (bowl + leaves emblem, "NutriSLM — Eat Smarter • Live Healthier" wordmark, 1254×1254 PNG) and asked for it everywhere it belongs.
+
+Work Log:
+- Generated all brand assets from /home/z/my-project/upload/ChatGPT Image Sep 18, 2026, 04_11_19 PM.png via a one-off sharp script (scripts/gen-logo.js, kept for regeneration; eslint ignores scripts/**):
+  * public/images/nutrislm-logo.png — full original logo (also used as the openGraph image)
+  * public/images/nutrislm-logo-mark.png — square emblem crop (auto bbox via row-occupancy gap detection) with the white background REMOVED by border flood-fill (interior whites like the bowl rim / tech lines / leaf veins preserved; 1px alpha feather), 760×760
+  * public/images/nutrislm-logo-mark-white.png — white-bg fallback crop
+  * public/icons/icon-192.png, icon-512.png, apple-touch-icon.png (180), icon-maskable-512.png (emblem at 62% for the maskable safe zone) — all regenerated from the real logo, replacing the old placeholder art
+  * Deleted public/logo.svg (was the leftover Z.ai logo)
+- Wired the emblem (transparent mark inside a white app-icon chip: rounded-2xl bg-white p-1 shadow ring-1 ring-emerald-900/10 dark:ring-white/15, so brand colors stay exact in both themes) into every branding touchpoint:
+  * app-shell.tsx — BrandBlock (sidebar + mobile drawer), mobile top bar brand, BareShell header (login page top-left), footer About line (chip + text now flow inline via flex items-start + min-w-0 span)
+  * app.tsx — session-bootstrap splash (h-14 chip + Loader2)
+  * auth-view.tsx — brand-panel logo chip (h-12) next to the NutriSLM wordmark
+  * views/settings-view.tsx — About card (replaced the generic Sparkles chip)
+- layout.tsx metadata: icons → /icons/icon-192.png + icon-512.png + apple-touch; openGraph image → nutrislm-logo.png with dimensions/alt; added metadataBase (fixed the Next metadataBase warning). manifest.webmanifest untouched (already pointed at the regenerated /icons files).
+- Removed now-unused Sprout import (app-shell, app.tsx) and Sparkles import (settings-view); auth-view keeps Sprout (headline + trust item). Stripped unnecessary no-img-element eslint-disable comments (rule is off in this config).
+- Verification: bun run lint clean; tsc src clean; curl → all 6 asset URLs 200 (logo.svg correctly 404); agent-browser sweep — sidebar chip + wordmark (light AND forced dark), footer chip, Settings About card, login BareShell header + brand panel chip, 390px mobile top bar all render the real emblem; DOM favicon links = icon-192/icon-512/apple-touch; no horizontal overflow at 390px; console clean (HMR + DevTools info only); dev.log no errors.
+
+Stage Summary:
+- The official NutriSLM logo is now the brand identity everywhere: browser tab favicon, PWA/install icons (incl. maskable), OG share image, login screen (header + brand panel), dashboard sidebar, mobile top bar + drawer, app footer, bootstrap splash, and Settings About. Old Z.ai logo fully removed.
+- Files: public/images/nutrislm-logo{,-mark,-mark-white}.png, public/icons/* (4 regenerated), src/app/layout.tsx, src/components/nutrislm/{app-shell,app,auth-view}.tsx, views/settings-view.tsx, scripts/gen-logo.js (new, lint-ignored), eslint.config.mjs (scripts ignore).
+- Rebuild the zip after this entry (public/nutrislm-project.zip).

@@ -23,7 +23,6 @@ import {
   Palette,
   RefreshCcw,
   ShieldCheck,
-  Sparkles,
   Sun,
   TriangleAlert,
   UserRound,
@@ -543,9 +542,9 @@ export function SettingsView() {
             <div className="flex min-w-0 items-center gap-3">
               <span
                 aria-hidden
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-500 text-white shadow-sm"
+                className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-white p-0.5 shadow-sm ring-1 ring-emerald-900/10 dark:ring-white/15"
               >
-                <Sparkles className="h-5 w-5" />
+                <img src="/images/nutrislm-logo-mark.png" alt="" className="h-full w-full object-contain" />
               </span>
               <div className="min-w-0">
                 <p className="text-sm font-bold text-foreground">NutriSLM</p>

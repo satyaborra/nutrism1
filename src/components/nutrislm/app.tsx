@@ -5,7 +5,7 @@
  * sidebar dashboard shell with the active view.
  */
 import { useEffect } from "react";
-import { Loader2, Sprout } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { api } from "@/lib/client/api";
 import { useNutriStore } from "./store";
 import { AppShell, BareShell } from "./app-shell";
@@ -37,8 +37,8 @@ export function NutriSLMApp() {
     return (
       <BareShell>
         <div className="flex min-h-[60vh] flex-col items-center justify-center gap-3" aria-busy="true">
-          <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-600 text-white shadow-md shadow-emerald-600/20">
-            <Sprout className="h-6 w-6" aria-hidden />
+          <span className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-2xl bg-white p-1 shadow-md ring-1 ring-emerald-900/10 dark:ring-white/15">
+            <img src="/images/nutrislm-logo-mark.png" alt="" className="h-full w-full object-contain" aria-hidden />
           </span>
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" aria-hidden />
           <p className="sr-only">Loading NutriSLM…</p>

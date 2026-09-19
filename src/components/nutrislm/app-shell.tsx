@@ -21,7 +21,6 @@ import {
   Menu,
   Search,
   Settings,
-  Sprout,
   Target,
   Trophy,
   UserRound,
@@ -59,8 +58,8 @@ const NAV_FOOTER: { id: AppView; label: string; icon: React.ComponentType<{ clas
 function BrandBlock() {
   return (
     <a href="/" className="flex items-center gap-3 rounded-xl px-1 py-1 focus-visible:outline-2 focus-visible:outline-ring">
-      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-600 text-white shadow-md shadow-emerald-600/20">
-        <Sprout className="h-6 w-6" aria-hidden />
+      <span className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-white p-1 shadow-md shadow-emerald-600/10 ring-1 ring-emerald-900/10 dark:ring-white/15">
+        <img src="/images/nutrislm-logo-mark.png" alt="" className="h-full w-full object-contain" aria-hidden />
       </span>
       <span>
         <span className="block text-lg font-extrabold leading-tight tracking-tight">
@@ -351,8 +350,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <Menu className="h-5 w-5" aria-hidden />
           </button>
           <a href="/" className="flex items-center gap-2">
-            <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-600 text-white">
-              <Sprout className="h-4.5 w-4.5" aria-hidden />
+            <span className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-xl bg-white p-0.5 shadow-sm ring-1 ring-emerald-900/10 dark:ring-white/15">
+              <img src="/images/nutrislm-logo-mark.png" alt="" className="h-full w-full object-contain" aria-hidden />
             </span>
             <span className="text-base font-extrabold tracking-tight">
               Nutri<span className="text-primary">SLM</span>
@@ -406,11 +405,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <footer className="mt-auto pb-[env(safe-area-inset-bottom)]">
           <div className="h-0.5 w-full bg-gradient-to-r from-primary/0 via-primary/40 to-teal-500/0" aria-hidden />
           <div className="mx-auto w-full max-w-7xl px-4 py-4 text-[11px] leading-relaxed text-muted-foreground">
-            <p>
-              <strong className="text-foreground/80">NutriSLM</strong> — multimodal personalized nutrition intelligence.
-              AI understands, the database answers, deterministic code calculates — never the other way around. Sources:
-              IFCT 2017 · USDA · WHO · ICMR-NIN · ADA · KDIGO. Not medical advice — confirm clinical targets with your
-              care team.
+            <p className="flex items-start gap-2">
+              <span
+                aria-hidden
+                className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white p-0.5 shadow-sm ring-1 ring-emerald-900/10 dark:ring-white/15"
+              >
+                <img src="/images/nutrislm-logo-mark.png" alt="" className="h-full w-full object-contain" />
+              </span>
+              <span className="min-w-0">
+                <strong className="text-foreground/80">NutriSLM</strong> — multimodal personalized nutrition intelligence.
+                AI understands, the database answers, deterministic code calculates — never the other way around. Sources:
+                IFCT 2017 · USDA · WHO · ICMR-NIN · ADA · KDIGO. Not medical advice — confirm clinical targets with your
+                care team.
+              </span>
             </p>
           </div>
         </footer>
@@ -470,8 +477,8 @@ export function BareShell({ children }: { children: React.ReactNode }) {
       <div aria-hidden className="pointer-events-none absolute -bottom-24 -right-24 h-72 w-72 rounded-full bg-teal-500/10 blur-3xl" />
       <header className="relative z-10 mx-auto flex h-14 w-full max-w-6xl items-center justify-between px-4">
         <a href="/" className="flex items-center gap-2">
-          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-600 text-white shadow-md shadow-emerald-600/20">
-            <Sprout className="h-5 w-5" aria-hidden />
+          <span className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-xl bg-white p-0.5 shadow-md ring-1 ring-emerald-900/10 dark:ring-white/15">
+            <img src="/images/nutrislm-logo-mark.png" alt="" className="h-full w-full object-contain" aria-hidden />
           </span>
           <span className="text-lg font-extrabold tracking-tight">
             Nutri<span className="text-primary">SLM</span>

@@ -176,8 +176,8 @@ export function AuthView() {
 
         {/* logo */}
         <div className="relative flex items-center gap-3">
-          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-600 text-white shadow-md shadow-emerald-600/20">
-            <Sprout className="h-6 w-6" aria-hidden />
+          <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-white p-1 shadow-md ring-1 ring-emerald-900/10 dark:ring-white/15">
+            <img src="/images/nutrislm-logo-mark.png" alt="" className="h-full w-full object-contain" aria-hidden />
           </span>
           <span>
             <span className="block text-lg font-extrabold leading-tight tracking-tight text-emerald-950 dark:text-emerald-50">

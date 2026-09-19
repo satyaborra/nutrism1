@@ -23,6 +23,7 @@ const caveat = Caveat({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"),
   title: "NutriSLM — Multimodal Personalized Nutrition Intelligence",
   description:
     "Describe food in any language or snap a photo — NutriSLM parses it with AI, verifies nutrition against IFCT/USDA facts, enforces clinical constraints (T2DM/CKD/CVD) with cited evidence, and recommends your next meal.",
@@ -31,8 +32,8 @@ export const metadata: Metadata = {
   manifest: "/manifest.webmanifest",
   icons: {
     icon: [
-      { url: "/logo.svg", type: "image/svg+xml" },
       { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icons/icon-512.png", sizes: "512x512", type: "image/png" },
     ],
     apple: "/icons/apple-touch-icon.png",
   },
@@ -46,6 +47,7 @@ export const metadata: Metadata = {
     description: "Multimodal personalized nutrition intelligence platform",
     siteName: "NutriSLM",
     type: "website",
+    images: [{ url: "/images/nutrislm-logo.png", width: 1254, height: 1254, alt: "NutriSLM — Eat Smarter · Live Healthier" }],
   },
 };
 
