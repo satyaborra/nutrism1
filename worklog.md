@@ -664,3 +664,22 @@ Work Log — VERIFICATION (E2E, agent-browser):
 Stage Summary:
 - The AI Coach is live: context-aware chat with deterministic data answers, engine-backed recommendations with DB-authoritative nutrition, plan/swap features, evidence attribution, multilingual intent detection, context caching+invalidation, user isolation, and the premium 3-column coach screen + Home card. All spec intents verified E2E.
 - Files: src/lib/coach/{context-builder,intents,responders,plan-shared}.ts; src/app/api/coach/{context,chat,snapshot,daily-plan,plan-rest-of-day,meal-swap}/route.ts; src/lib/recommendation/engine.ts (slot/exclude overrides); prisma/schema.prisma (CoachMessage.intent); src/components/nutrislm/{views/coach-view.tsx,coach-home-card.tsx,slot-labels.ts,dashboard.tsx,app-shell.tsx,store.ts,views/home-view.tsx}; invalidation hooks in 6 mutation routes; src/lib/client/{api.ts,types.ts}. Zip rebuilt after this entry.
+
+---
+Task ID: 36
+Agent: Z.ai Code (main)
+Task: Store updated version in git repo (user request)
+
+Work Log:
+- Verified repo state: 2 commits were pending push (Task 35 AI Coach `f5d50b9` + zip refresh `1818548`); working tree had only db/custom.db change.
+- Committed db snapshot as `f96c54f` "store: post-Task-35 db snapshot (AI Coach data)". Working tree now CLEAN.
+- Searched env/remote URL/.netrc/.zscripts/.env for persisted GitHub credentials: NONE found. Previous session's PAT was used inline and not persisted (user was advised to revoke it — it was shared in chat).
+- Attempted `git push origin main` not possible without fresh credentials; repo left in push-ready state.
+- Recreated the expired 15-min webDevReview cron (job_id 398862, tz Asia/Calcutta).
+- Dev server verified healthy on :3000 (HTTP 200).
+
+Stage Summary:
+- 3 commits ready to push to https://github.com/satyaborra/nutrism1 (main):
+  `1818548` zip refresh, `f5d50b9` Task 35 AI Coach, `f96c54f` db snapshot.
+- BLOCKED: push needs a fresh GitHub PAT from the user (old one should be revoked). Once provided, single command: `git push https://<PAT>@github.com/satyaborra/nutrism1.git main`.
+- Zip deliverable public/nutrislm-project.zip is current (post-Task-35) and committed.
