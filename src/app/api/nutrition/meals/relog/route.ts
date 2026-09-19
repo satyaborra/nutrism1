@@ -11,6 +11,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { withApi, parseJsonBody, AppError } from "@/lib/api-utils";
 import { requireUser } from "@/lib/auth";
+import { invalidateCoachContext } from "@/lib/coach/context-builder";
 import { db } from "@/lib/db";
 import { getFood, convertQuantity } from "@/lib/nutrition/food-repository";
 import { calculateFoodLine, sumNutrition, foodToRef } from "@/lib/nutrition/calculator";
@@ -155,6 +156,8 @@ export const POST = withApi("meal_relog", async ({ req }: { req: NextRequest }) 
   });
 
   const compliance = await mealComplianceSummary(conditions, result.totals, false);
+
+  invalidateCoachContext(user.id); // relogged meal → coach context rebuild
 
   return NextResponse.json({
     ok: true,

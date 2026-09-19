@@ -13,6 +13,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { withApi, AppError } from "@/lib/api-utils";
 import { requireUser } from "@/lib/auth";
+import { invalidateCoachContext } from "@/lib/coach/context-builder";
 import { db } from "@/lib/db";
 import { convertQuantity } from "@/lib/nutrition/food-repository";
 import { calculateFoodLine, sumNutrition, foodToRef, scaleNutrition } from "@/lib/nutrition/calculator";
@@ -73,6 +74,8 @@ export const DELETE = withApi("meal_delete", async ({ req }: { req: NextRequest 
 
     return { id: meal.id, totals: { calories: meal.totalCalories }, foodsCount: meal.foods.length };
   });
+
+  invalidateCoachContext(user.id); // coach must never see a deleted meal (spec §18)
 
   return NextResponse.json({
     ok: true,
@@ -266,6 +269,8 @@ export const PATCH = withApi("meal_edit", async ({ req }: { req: NextRequest }) 
   for (const k of Object.keys(safeTotals) as (keyof NutritionValues)[]) {
     safeTotals[k] = round(updated.totals[k] ?? 0, 2);
   }
+
+  invalidateCoachContext(user.id); // coach must never see stale meal edits (spec §18)
 
   return NextResponse.json({
     ok: true,

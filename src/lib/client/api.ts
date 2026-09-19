@@ -41,6 +41,12 @@ import type {
   ActivityCalendarResponse,
   NotesJournalResponse,
   NotesReflectionResponse,
+  CoachContextResponse,
+  CoachSnapshotResponse,
+  CoachChatV2Response,
+  CoachThreadV2Response,
+  CoachPlanEndpointResponse,
+  CoachSwapEndpointResponse,
 } from "./types";
 
 export class ApiError extends Error {
@@ -162,6 +168,24 @@ export const api = {
       body: JSON.stringify({ message, ...(threadId ? { threadId } : {}) }),
     }),
   coachChatThreads: () => request<CoachThreadsResponse>("/api/nutrition/coach-chat/threads"),
+
+  // ---------- AI Coach (context-aware) ----------
+  coachContext: () => request<CoachContextResponse>("/api/coach/context"),
+  coachSnapshot: () => request<CoachSnapshotResponse>("/api/coach/snapshot"),
+  coachChatSendV2: (message: string, threadId?: string) =>
+    request<CoachChatV2Response>("/api/coach/chat", {
+      method: "POST",
+      body: JSON.stringify({ message, ...(threadId ? { threadId } : {}) }),
+    }),
+  coachChatThreadV2: (threadId?: string) =>
+    request<CoachThreadV2Response>(`/api/coach/chat${threadId ? `?threadId=${encodeURIComponent(threadId)}` : ""}`),
+  coachDailyPlan: () => request<CoachPlanEndpointResponse>("/api/coach/daily-plan", { method: "POST" }),
+  coachPlanRestOfDay: () => request<CoachPlanEndpointResponse>("/api/coach/plan-rest-of-day", { method: "POST" }),
+  coachMealSwap: (slot?: string, excludeTemplateId?: string) =>
+    request<CoachSwapEndpointResponse>("/api/coach/meal-swap", {
+      method: "POST",
+      body: JSON.stringify({ ...(slot ? { slot } : {}), ...(excludeTemplateId ? { excludeTemplateId } : {}) }),
+    }),
   sendFeedback: (payload: FeedbackSendRequest) =>
     request<FeedbackSendResponse>("/api/nutrition/recommendation-feedback", {
       method: "POST",

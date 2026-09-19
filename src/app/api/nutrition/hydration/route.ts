@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { withApi, parseJsonBody, AppError } from "@/lib/api-utils";
 import { requireUser } from "@/lib/auth";
+import { invalidateCoachContext } from "@/lib/coach/context-builder";
 import { db } from "@/lib/db";
 import type { RequestContext } from "@/lib/observability";
 
@@ -61,6 +62,8 @@ export const POST = withApi("hydration_post", async ({ req }: { req: NextRequest
     create: { userId: user.id, date, glasses: Math.max(0, Math.min(MAX_GLASSES, next)) },
     update: { glasses: Math.max(0, Math.min(MAX_GLASSES, next)) },
   });
+
+  invalidateCoachContext(user.id); // water change → coach context rebuild (spec §18)
 
   return NextResponse.json({
     date,

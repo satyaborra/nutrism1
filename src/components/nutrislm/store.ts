@@ -6,7 +6,7 @@
 import { create } from "zustand";
 import type { AuthProfileBrief, User } from "@/lib/client/types";
 
-export type AppView = "home" | "log" | "meals" | "insights" | "profile" | "goals" | "settings";
+export type AppView = "home" | "log" | "meals" | "insights" | "coach" | "profile" | "goals" | "settings";
 
 export interface LoggerRequest {
   tab: "text" | "photo";

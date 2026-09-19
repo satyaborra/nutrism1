@@ -15,7 +15,8 @@ export type Operation =
   | "foods_browse" | "food_detail" | "meal_relog"
   | "favorites_list" | "favorites_create" | "favorites_delete" | "favorites_log" | "favorites_rename"
   | "weekly_digest" | "milestones"
-  | "activity_calendar" | "notes_journal" | "notes_journal_reflect";
+  | "activity_calendar" | "notes_journal" | "notes_journal_reflect"
+  | "coach_context" | "coach_snapshot" | "coach_chat_v2" | "coach_daily_plan" | "coach_plan_rest_of_day" | "coach_meal_swap";
 
 export interface RequestContext {
   requestId: string;

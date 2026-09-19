@@ -764,3 +764,171 @@ export interface NotesReflectionResponse {
   generatedAt: string;
   aiNote: string | null;
 }
+
+// ============ AI COACH (context-aware) ============
+
+export interface CoachNutrientState {
+  consumed: number;
+  target: number;
+  remaining: number;
+  pct: number;
+}
+
+export interface CoachContextMeal {
+  id: string;
+  mealType: string;
+  time: string;
+  foods: string[];
+  calories: number;
+  protein: number;
+  carbohydrates: number;
+  fat: number;
+  fiber: number;
+  sugar: number;
+  sodium: number;
+}
+
+export interface CoachNutritionState {
+  calories: CoachNutrientState;
+  protein: CoachNutrientState;
+  carbohydrates: CoachNutrientState;
+  fat: CoachNutrientState;
+  fiber: CoachNutrientState;
+  sugar: CoachNutrientState;
+  sodium: CoachNutrientState;
+  potassium: CoachNutrientState;
+  phosphorus: CoachNutrientState;
+  cholesterol: CoachNutrientState;
+  saturatedFat: CoachNutrientState;
+}
+
+export interface CoachContextPayload {
+  userId: string;
+  date: string;
+  current_time: string;
+  meal_slot: string;
+  greetingName: string;
+  profile: { age: number | null; sex: string; height_cm: number | null; weight_kg: number | null; activity: string; goal: string | null };
+  health_conditions: string[];
+  diet: { type: string; cuisine: string | null; allergies: string[]; intolerances: string[] };
+  language: string;
+  nutrition: CoachNutritionState;
+  meals: CoachContextMeal[];
+  mealsLogged: number;
+  water: { glasses: number; target: number; remaining: number };
+  history: {
+    yesterdayMeals: string[];
+    recentFoodNames: string[];
+    loggingStreak: number;
+    weekAvgCalories: number | null;
+    weekTotals: { calories: number; protein: number; meals: number; daysLogged: number };
+    recentRecommendationIds: string[];
+    lastRecommendation: { templateId: string | null; name: string | null; mealSlot: string | null; reason: string | null } | null;
+  };
+  compliance: { state: string; violations: { condition: string; nutrient: string; message: string; severity: string; evidenceSource: string }[] };
+}
+
+export interface CoachContextResponse {
+  context: CoachContextPayload;
+}
+
+export interface CoachSnapshotResponse {
+  date: string;
+  greeting: string;
+  mealsLogged: number;
+  mealsTotal: number;
+  calories: { consumed: number; target: number; remaining: number; pct: number };
+  protein: { consumed: number; target: number; remaining: number; pct: number };
+  fiber: { consumed: number; target: number; remaining: number; pct: number };
+  water: { glasses: number; target: number; remaining: number };
+  nextSlot: string | null;
+  priorities: string[];
+  streak: number;
+  summaryLine: string;
+}
+
+export interface CoachRecommendationCard {
+  kind: "recommendation";
+  slot: string;
+  candidateId: string;
+  name: string;
+  items: { foodId: string; name: string; quantity: number; unit: string }[];
+  nutrition: { calories: number; protein: number; carbs: number; fat: number; fiber: number };
+  reason: string;
+  keyFactors: string[];
+  alternatives: { candidateId: string; name: string; calories: number }[];
+  engineSource: "ai" | "deterministic_fallback";
+}
+
+export interface CoachPlanCard {
+  kind: "plan";
+  slots: {
+    slot: string;
+    label: string;
+    status: "logged" | "recommended" | "skipped";
+    time?: string;
+    name?: string;
+    foods?: string[];
+    items?: { foodId: string; name: string; quantity: number; unit: string }[];
+    calories?: number;
+    reason?: string;
+    candidateId?: string;
+  }[];
+  overview: { label: string; value: string }[];
+  summary: string;
+}
+
+export interface CoachGapsCard {
+  kind: "gaps";
+  items: { label: string; consumed: number; target: number; pct: number; unit: string; tone: "low" | "ok" | "high" }[];
+}
+
+export interface CoachWaterCard {
+  kind: "water";
+  glasses: number;
+  target: number;
+  remaining: number;
+}
+
+export interface CoachEvidenceCard {
+  kind: "evidence";
+  sources: { id: string; source: string; title: string; snippet: string }[];
+}
+
+export interface CoachHistoryCard {
+  kind: "history";
+  title: string;
+  lines: { label: string; value: string }[];
+}
+
+export type CoachCard =
+  | CoachRecommendationCard
+  | CoachPlanCard
+  | CoachGapsCard
+  | CoachWaterCard
+  | CoachEvidenceCard
+  | CoachHistoryCard;
+
+export interface CoachChatV2Response {
+  threadId: string;
+  intent: string;
+  message: { id: string; role: "assistant"; content: string; createdAt: string };
+  cards: CoachCard[];
+  engineSource: "ai" | "deterministic_fallback";
+}
+
+export interface CoachThreadV2Response {
+  threadId: string | null;
+  messages: { id: string; role: "user" | "assistant"; content: string; intent: string | null; createdAt: string }[];
+}
+
+export interface CoachPlanEndpointResponse {
+  date: string;
+  card: CoachPlanCard;
+  text: string;
+}
+
+export interface CoachSwapEndpointResponse {
+  card: CoachRecommendationCard;
+  text: string;
+}

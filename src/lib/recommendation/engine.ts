@@ -212,6 +212,10 @@ function scoreCandidate(
 export interface NextMealContextInput {
   userId: string;
   profile: Profile | null;
+  /** Override the time-inferred slot (used by coach plan-rest-of-day / daily-plan / swaps). */
+  mealSlot?: string;
+  /** A template id to exclude from selection (used when the user rejects a recommendation). */
+  excludeTemplateId?: string;
   mealsToday: {
     mealType: string;
     foods: { displayName: string }[];
@@ -232,7 +236,7 @@ export interface NextMealContextInput {
 
 export async function generateNextMealRecommendation(input: NextMealContextInput): Promise<NextMealRecommendation> {
   const now = input.now ?? new Date();
-  const mealSlot = inferMealSlot(now);
+  const mealSlot = input.mealSlot ?? inferMealSlot(now);
   const profile = input.profile;
   const conditions = safeParseArray(profile?.healthConditions);
   const allergies = parseAllergies(profile);
@@ -295,7 +299,10 @@ export async function generateNextMealRecommendation(input: NextMealContextInput
   }
 
   // 1-2. Candidates + 3. deterministic nutrition + 4. constraint screening
-  const candidates = await generateCandidates(conditions, allergies, dietaryPreference, mealSlot);
+  const allCandidates = await generateCandidates(conditions, allergies, dietaryPreference, mealSlot);
+  const candidates = input.excludeTemplateId
+    ? allCandidates.filter((c) => c.id !== input.excludeTemplateId)
+    : allCandidates;
 
   // 5. deterministic scoring (incl. feedback adjustments + similarity generalization)
   for (const c of candidates) {

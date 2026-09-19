@@ -273,6 +273,7 @@ model CoachMessage {
   threadId  String
   role      String // user | assistant
   content   String // never contains secrets; capped at API layer
+  intent    String? // detected coach intent (today_summary, next_meal, ...)
   createdAt DateTime @default(now())
 
   @@index([userId, threadId, createdAt])

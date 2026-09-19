@@ -23,6 +23,7 @@ import {
   Settings,
   Target,
   Trophy,
+  Bot,
   UserRound,
   UtensilsCrossed,
   X,
@@ -47,6 +48,7 @@ const NAV: { id: AppView; label: string; icon: React.ComponentType<{ className?:
   { id: "log", label: "Log Meal", icon: Camera },
   { id: "meals", label: "Meals", icon: UtensilsCrossed },
   { id: "insights", label: "Nutrition Insights", icon: BarChart3 },
+  { id: "coach", label: "AI Coach", icon: Bot },
   { id: "profile", label: "Health Profile", icon: UserRound },
   { id: "goals", label: "Goals", icon: Target },
 ];

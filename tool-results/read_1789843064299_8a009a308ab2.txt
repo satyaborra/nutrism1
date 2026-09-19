@@ -1,0 +1,2002 @@
+     1→You are the Principal AI Engineer, Full-Stack Engineer, Product Architect, UX Designer, and Startup CTO for NutriSLM.
+     2→
+     3→I want to add a production-quality AI Nutrition Coach Assistant to my existing NutriSLM application.
+     4→
+     5→DO NOT build a generic chatbot.
+     6→
+     7→Build a CONTEXT-AWARE PERSONAL NUTRITION COACH that understands the user's complete nutrition day and can answer questions, summarize meals, identify nutrition gaps, and recommend what the user should eat next.
+     8→
+     9→The AI Coach must use the existing NutriSLM architecture rather than creating a separate nutrition system.
+    10→
+    11→========================================================
+    12→PRODUCT VISION
+    13→========================================================
+    14→
+    15→NutriSLM AI Coach:
+    16→
+    17→"Your personal nutrition intelligence layer."
+    18→
+    19→The coach should understand:
+    20→
+    21→• what the user ate today
+    22→• what the user ate in previous days
+    23→• calories consumed
+    24→• calories remaining
+    25→• protein consumed/remaining
+    26→• carbohydrates consumed/remaining
+    27→• fat consumed/remaining
+    28→• fiber consumed/remaining
+    29→• sugar
+    30→• sodium
+    31→• potassium
+    32→• phosphorus
+    33→• cholesterol
+    34→• saturated fat
+    35→• water intake
+    36→• meal timing
+    37→• breakfast
+    38→• lunch
+    39→• snacks
+    40→• dinner
+    41→• health conditions
+    42→• allergies
+    43→• dietary preferences
+    44→• cuisine preferences
+    45→• nutrition goals
+    46→• current meal slot
+    47→• previous recommendations
+    48→• RAG evidence
+    49→
+    50→The user should be able to talk to the Coach naturally.
+    51→
+    52→========================================================
+    53→CORE USER EXPERIENCE
+    54→========================================================
+    55→
+    56→The user opens:
+    57→
+    58→AI COACH
+    59→
+    60→The screen should immediately show:
+    61→
+    62→"Good afternoon, Jaswanth 👋"
+    63→
+    64→"Here's your nutrition day so far."
+    65→
+    66→Then provide a visual summary:
+    67→
+    68→TODAY
+    69→
+    70→Calories
+    71→1,245 / 2,573 kcal
+    72→
+    73→Protein
+    74→48 / 68 g
+    75→
+    76→Carbohydrates
+    77→152 / 289 g
+    78→
+    79→Fat
+    80→42 / 86 g
+    81→
+    82→Fiber
+    83→19 / 36 g
+    84→
+    85→Water
+    86→5 / 8 glasses
+    87→
+    88→Then:
+    89→
+    90→MEALS TODAY
+    91→
+    92→Breakfast
+    93→2 Idli + Sambar
+    94→246 kcal
+    95→
+    96→Lunch
+    97→Rice + Dal + Vegetables
+    98→628 kcal
+    99→
+   100→Snack
+   101→Apple + Almonds
+   102→164 kcal
+   103→
+   104→Dinner
+   105→Not logged yet
+   106→
+   107→Then:
+   108→
+   109→YOUR NEXT FOCUS
+   110→
+   111→"Your protein and fiber intake still have room to increase today. A balanced dinner containing a protein source, vegetables and a suitable carbohydrate portion could fit your remaining nutrition."
+   112→
+   113→Then:
+   114→
+   115→NEXT MEAL
+   116→
+   117→Personalized recommendation.
+   118→
+   119→Then:
+   120→
+   121→ASK YOUR COACH
+   122→
+   123→"What should I eat for dinner?"
+   124→
+   125→========================================================
+   126→IMPORTANT ARCHITECTURAL PRINCIPLE
+   127→========================================================
+   128→
+   129→The AI Coach MUST NOT independently calculate nutrition.
+   130→
+   131→The Coach receives verified nutrition context from the backend.
+   132→
+   133→Architecture:
+   134→
+   135→                    AI COACH
+   136→                       |
+   137→                       ↓
+   138→              CONTEXT BUILDER
+   139→                       |
+   140→       +---------------+----------------+
+   141→       |               |                |
+   142→       ↓               ↓                ↓
+   143→   TODAY'S MEALS   HEALTH PROFILE   NUTRITION STATE
+   144→       |               |                |
+   145→       +---------------+----------------+
+   146→                       ↓
+   147→                  RAG EVIDENCE
+   148→                       ↓
+   149→              DISEASE CONSTRAINTS
+   150→                       ↓
+   151→                 MISTRAL / SLM
+   152→                       ↓
+   153→                   VALIDATOR
+   154→                       ↓
+   155→                 COACH RESPONSE
+   156→
+   157→The model reasons over verified context.
+   158→
+   159→It does NOT become the source of truth.
+   160→
+   161→========================================================
+   162→1. COACH CONTEXT ENGINE
+   163→========================================================
+   164→
+   165→Create a dedicated service:
+   166→
+   167→backend/services/coach_context_builder.py
+   168→
+   169→or adapt the existing backend architecture.
+   170→
+   171→The context builder should gather:
+   172→
+   173→USER PROFILE
+   174→
+   175→age
+   176→sex
+   177→height
+   178→weight
+   179→activity level
+   180→goal
+   181→
+   182→HEALTH
+   183→
+   184→T2DM
+   185→CKD
+   186→CVD
+   187→other configured conditions
+   188→
+   189→DIET
+   190→
+   191→vegetarian
+   192→vegan
+   193→non-vegetarian
+   194→eggetarian
+   195→cuisine
+   196→allergies
+   197→intolerances
+   198→
+   199→LANGUAGE
+   200→
+   201→preferred language
+   202→
+   203→TODAY
+   204→
+   205→date
+   206→current time
+   207→current meal slot
+   208→
+   209→MEALS
+   210→
+   211→breakfast
+   212→lunch
+   213→snacks
+   214→dinner
+   215→
+   216→NUTRITION
+   217→
+   218→calories
+   219→protein
+   220→carbs
+   221→fat
+   222→fiber
+   223→sugar
+   224→sodium
+   225→potassium
+   226→phosphorus
+   227→cholesterol
+   228→saturated fat
+   229→
+   230→HYDRATION
+   231→
+   232→water consumed
+   233→water target
+   234→
+   235→GOALS
+   236→
+   237→daily calorie target
+   238→macro targets
+   239→fiber target
+   240→hydration target
+   241→
+   242→HISTORY
+   243→
+   244→recent meals
+   245→recent recommendations
+   246→meal patterns
+   247→streaks
+   248→
+   249→RAG
+   250→
+   251→relevant evidence
+   252→
+   253→CONSTRAINTS
+   254→
+   255→allergies
+   256→diet restrictions
+   257→disease-related constraints
+   258→
+   259→========================================================
+   260→2. CONTEXT OBJECT
+   261→========================================================
+   262→
+   263→Create a structured internal object.
+   264→
+   265→Example:
+   266→
+   267→{
+   268→  "date": "2026-09-18",
+   269→  "current_time": "14:30",
+   270→  "meal_slot": "Lunch",
+   271→
+   272→  "profile": {
+   273→    "age": 24,
+   274→    "sex": "male",
+   275→    "height_cm": 172,
+   276→    "weight_kg": 75,
+   277→    "activity": "moderate",
+   278→    "goal": "maintain"
+   279→  },
+   280→
+   281→  "health_conditions": [
+   282→    "T2DM"
+   283→  ],
+   284→
+   285→  "diet": {
+   286→    "type": "vegetarian",
+   287→    "cuisine": "Indian",
+   288→    "allergies": []
+   289→  },
+   290→
+   291→  "nutrition": {
+   292→    "calories": {
+   293→      "consumed": 874,
+   294→      "target": 2573,
+   295→      "remaining": 1699
+   296→    },
+   297→    "protein": {
+   298→      "consumed": 34,
+   299→      "target": 68,
+   300→      "remaining": 34
+   301→    },
+   302→    "carbohydrates": {
+   303→      "consumed": 108,
+   304→      "target": 289,
+   305→      "remaining": 181
+   306→    },
+   307→    "fat": {
+   308→      "consumed": 29,
+   309→      "target": 86,
+   310→      "remaining": 57
+   311→    },
+   312→    "fiber": {
+   313→      "consumed": 12,
+   314→      "target": 36,
+   315→      "remaining": 24
+   316→    }
+   317→  },
+   318→
+   319→  "meals": [
+   320→    {
+   321→      "meal_type": "Breakfast",
+   322→      "foods": [
+   323→        "Idli",
+   324→        "Sambar"
+   325→      ],
+   326→      "calories": 246,
+   327→      "protein": 10
+   328→    }
+   329→  ],
+   330→
+   331→  "water": {
+   332→    "glasses": 4,
+   333→    "target": 8
+   334→  }
+   335→}
+   336→
+   337→Do not expose unnecessary internal fields to the user.
+   338→
+   339→========================================================
+   340→3. DAILY DIET VIEW
+   341→========================================================
+   342→
+   343→The Coach must be able to answer:
+   344→
+   345→"What did I eat today?"
+   346→
+   347→Return:
+   348→
+   349→TODAY'S FOOD
+   350→
+   351→Breakfast
+   352→2 Idli + Sambar
+   353→
+   354→Lunch
+   355→Rice + Dal + Vegetables
+   356→
+   357→Snack
+   358→Apple + Almonds
+   359→
+   360→Dinner
+   361→Not logged
+   362→
+   363→Then:
+   364→
+   365→TOTAL
+   366→
+   367→Calories
+   368→...
+   369→
+   370→Protein
+   371→...
+   372→
+   373→Carbs
+   374→...
+   375→
+   376→Fat
+   377→...
+   378→
+   379→Fiber
+   380→...
+   381→
+   382→Water
+   383→...
+   384→
+   385→All values MUST come from the verified backend.
+   386→
+   387→========================================================
+   388→4. FULL DAY DIET PLAN
+   389→========================================================
+   390→
+   391→The user can ask:
+   392→
+   393→"Give me my complete diet plan for today."
+   394→
+   395→The Coach should produce:
+   396→
+   397→BREAKFAST
+   398→what was eaten / recommended
+   399→
+   400→MID-MORNING
+   401→if appropriate
+   402→
+   403→LUNCH
+   404→what was eaten / recommended
+   405→
+   406→EVENING SNACK
+   407→recommendation
+   408→
+   409→DINNER
+   410→recommendation
+   411→
+   412→OPTIONAL
+   413→
+   414→Before-bed snack if appropriate.
+   415→
+   416→The plan must respect:
+   417→
+   418→• calories remaining
+   419→• macro state
+   420→• fiber
+   421→• sodium
+   422→• potassium
+   423→• phosphorus
+   424→• health conditions
+   425→• allergies
+   426→• diet
+   427→• preferences
+   428→• meal history
+   429→
+   430→Do not recommend meals that violate hard constraints.
+   431→
+   432→========================================================
+   433→5. "WHAT SHOULD I EAT NEXT?"
+   434→========================================================
+   435→
+   436→User:
+   437→
+   438→"What should I eat next?"
+   439→
+   440→Flow:
+   441→
+   442→current time
+   443→↓
+   444→current meal slot
+   445→↓
+   446→today's meals
+   447→↓
+   448→remaining nutrition
+   449→↓
+   450→health conditions
+   451→↓
+   452→diet
+   453→↓
+   454→allergies
+   455→↓
+   456→RAG
+   457→↓
+   458→candidate generation
+   459→↓
+   460→deterministic candidate nutrition
+   461→↓
+   462→constraint filtering
+   463→↓
+   464→Mistral ranking
+   465→↓
+   466→validator
+   467→↓
+   468→recommendation
+   469→
+   470→Return:
+   471→
+   472→MEAL
+   473→
+   474→Vegetable Dal + 2 Roti + Salad
+   475→
+   476→ESTIMATED NUTRITION
+   477→
+   478→Calories
+   479→...
+   480→
+   481→Protein
+   482→...
+   483→
+   484→Carbs
+   485→...
+   486→
+   487→Fat
+   488→...
+   489→
+   490→Fiber
+   491→...
+   492→
+   493→WHY?
+   494→
+   495→Explain using the actual user's context.
+   496→
+   497→========================================================
+   498→6. "WHY DID YOU RECOMMEND THIS?"
+   499→========================================================
+   500→
+   501→The user can ask:
+   502→
+   503→"Why this meal?"
+   504→
+   505→The Coach should explain:
+   506→
+   507→• remaining nutrition
+   508→• meal balance
+   509→• preferences
+   510→• health context
+   511→• evidence
+   512→
+   513→Example:
+   514→
+   515→"You still have approximately 24 g of protein and 24 g of fiber remaining today. This meal provides a useful amount of both while fitting your vegetarian preference. Because your profile includes T2DM, the recommendation also considers carbohydrate composition and fiber."
+   516→
+   517→Do not make unsupported clinical claims.
+   518→
+   519→========================================================
+   520→7. "HOW DID I DO TODAY?"
+   521→========================================================
+   522→
+   523→User:
+   524→
+   525→"How did I do today?"
+   526→
+   527→Return a concise summary:
+   528→
+   529→TODAY'S PROGRESS
+   530→
+   531→Calories
+   532→72% of target
+   533→
+   534→Protein
+   535→68%
+   536→
+   537→Fiber
+   538→53%
+   539→
+   540→Water
+   541→63%
+   542→
+   543→Then:
+   544→
+   545→WHAT WENT WELL
+   546→
+   547→...
+   548→
+   549→WHAT TO FOCUS ON
+   550→
+   551→...
+   552→
+   553→NEXT STEP
+   554→
+   555→...
+   556→
+   557→Do not shame the user.
+   558→
+   559→Do not use judgmental language.
+   560→
+   561→========================================================
+   562→8. NUTRITION GAP DETECTION
+   563→========================================================
+   564→
+   565→The Coach should detect gaps from verified data.
+   566→
+   567→Examples:
+   568→
+   569→Protein remaining
+   570→
+   571→Fiber remaining
+   572→
+   573→Hydration remaining
+   574→
+   575→Calories remaining
+   576→
+   577→Potentially high sodium
+   578→
+   579→Potentially high saturated fat
+   580→
+   581→etc.
+   582→
+   583→Do not call something deficient unless the configured target/reference supports that interpretation.
+   584→
+   585→Use:
+   586→
+   587→"remaining"
+   588→
+   589→"below your configured target"
+   590→
+   591→"higher than your configured target"
+   592→
+   593→rather than unsupported medical claims.
+   594→
+   595→========================================================
+   596→9. MEAL BALANCE
+   597→========================================================
+   598→
+   599→The Coach should understand the day's meal pattern.
+   600→
+   601→Example:
+   602→
+   603→Breakfast:
+   604→high carbohydrate
+   605→
+   606→Lunch:
+   607→moderate protein
+   608→
+   609→Snack:
+   610→low protein
+   611→
+   612→Then:
+   613→
+   614→"Your logged meals today have been relatively carbohydrate-heavy and provide less protein than your configured target so far. A protein-containing dinner may help you move toward today's target."
+   615→
+   616→This reasoning must use actual data.
+   617→
+   618→========================================================
+   619→10. MEAL HISTORY
+   620→========================================================
+   621→
+   622→The Coach should be able to answer:
+   623→
+   624→"What did I eat yesterday?"
+   625→
+   626→"What do I usually eat for breakfast?"
+   627→
+   628→"What meals have I logged this week?"
+   629→
+   630→"How often do I eat dosa?"
+   631→
+   632→"What was my most recent dinner?"
+   633→
+   634→Use persisted meal history.
+   635→
+   636→Do not invent history.
+   637→
+   638→If no data exists:
+   639→
+   640→"I don't have enough logged meals to answer that yet."
+   641→
+   642→========================================================
+   643→11. TREND QUESTIONS
+   644→========================================================
+   645→
+   646→Support:
+   647→
+   648→"How have my meals been this week?"
+   649→
+   650→"Am I getting enough fiber compared with my target?"
+   651→
+   652→"How consistent have I been?"
+   653→
+   654→"What's my average calorie intake?"
+   655→
+   656→"Which meals do I repeat most?"
+   657→
+   658→Use actual database aggregation.
+   659→
+   660→The model should summarize results rather than calculate them from raw untrusted text.
+   661→
+   662→========================================================
+   663→12. WATER COACH
+   664→========================================================
+   665→
+   666→User:
+   667→
+   668→"How much water should I drink today?"
+   669→
+   670→Return the user's configured hydration target if available.
+   671→
+   672→Example:
+   673→
+   674→"You've logged 5 of your 8 glasses today, so you have 3 glasses remaining."
+   675→
+   676→Do not invent personalized medical hydration prescriptions.
+   677→
+   678→========================================================
+   679→13. DISEASE-AWARE COACH
+   680→========================================================
+   681→
+   682→The Coach must understand health conditions configured in the user's profile.
+   683→
+   684→Supported:
+   685→
+   686→T2DM
+   687→CKD
+   688→CVD
+   689→
+   690→For T2DM:
+   691→
+   692→consider carbohydrate distribution
+   693→fiber
+   694→added sugar
+   695→meal composition
+   696→portion context
+   697→
+   698→For CKD:
+   699→
+   700→consider sodium
+   701→potassium
+   702→phosphorus
+   703→protein
+   704→
+   705→For CVD:
+   706→
+   707→consider sodium
+   708→saturated fat
+   709→trans fat
+   710→cholesterol
+   711→overall dietary pattern
+   712→
+   713→IMPORTANT:
+   714→
+   715→Do not diagnose.
+   716→
+   717→Do not prescribe treatment.
+   718→
+   719→Do not invent universal disease thresholds.
+   720→
+   721→Use retrieved evidence and configured constraints.
+   722→
+   723→========================================================
+   724→14. RAG EVIDENCE
+   725→========================================================
+   726→
+   727→Use the existing NutriSLM RAG.
+   728→
+   729→Existing architecture:
+   730→
+   731→BGE embeddings
+   732→+
+   733→FAISS
+   734→
+   735→Trusted sources may include:
+   736→
+   737→USDA
+   738→IFCT
+   739→WHO
+   740→ICMR
+   741→ADA
+   742→KDIGO
+   743→AHA
+   744→
+   745→When a Coach response depends on nutrition guidance:
+   746→
+   747→retrieve relevant evidence.
+   748→
+   749→Example:
+   750→
+   751→User:
+   752→
+   753→"Why are you recommending more fiber?"
+   754→
+   755→Coach:
+   756→
+   757→"Your current fiber intake is below your configured daily target. Nutrition guidance emphasizes fiber-rich foods as part of healthy dietary patterns."
+   758→
+   759→Then show:
+   760→
+   761→Evidence
+   762→
+   763→Source:
+   764→ADA Standards of Care
+   765→
+   766→Do not fabricate citations.
+   767→
+   768→If evidence is unavailable:
+   769→
+   770→do not pretend that a source supports the statement.
+   771→
+   772→========================================================
+   773→15. EVIDENCE UI
+   774→========================================================
+   775→
+   776→Do not show raw RAG chunks.
+   777→
+   778→Instead create:
+   779→
+   780→Evidence
+   781→
+   782→ADA Standards of Care
+   783→Fiber guidance
+   784→
+   785→View source
+   786→
+   787→The user can expand:
+   788→
+   789→"Why am I seeing this?"
+   790→
+   791→Then show concise evidence.
+   792→
+   793→========================================================
+   794→16. CHAT INTERFACE
+   795→========================================================
+   796→
+   797→Create a premium AI Coach chat UI.
+   798→
+   799→Header:
+   800→
+   801→AI Coach
+   802→
+   803→"Your personalized nutrition companion"
+   804→
+   805→Show contextual starter questions:
+   806→
+   807→"What did I eat today?"
+   808→
+   809→"What should I eat next?"
+   810→
+   811→"How am I doing today?"
+   812→
+   813→"Plan the rest of my day"
+   814→
+   815→"Why this recommendation?"
+   816→
+   817→"Show my nutrition gaps"
+   818→
+   819→"Review my week"
+   820→
+   821→The user can type naturally.
+   822→
+   823→========================================================
+   824→17. CONTEXT-AWARE CHAT
+   825→========================================================
+   826→
+   827→Every Coach question should automatically receive the latest context.
+   828→
+   829→Example:
+   830→
+   831→User logs breakfast.
+   832→
+   833→Then asks:
+   834→
+   835→"What should I eat next?"
+   836→
+   837→The Coach must see the newly logged breakfast.
+   838→
+   839→User logs lunch.
+   840→
+   841→Then asks the same question.
+   842→
+   843→The Coach must see:
+   844→
+   845→breakfast
+   846→+
+   847→lunch
+   848→
+   849→and update its recommendation.
+   850→
+   851→Do not use stale context.
+   852→
+   853→========================================================
+   854→18. CONTEXT REFRESH
+   855→========================================================
+   856→
+   857→Whenever the user:
+   858→
+   859→logs a meal
+   860→edits a meal
+   861→deletes a meal
+   862→changes health profile
+   863→changes dietary preference
+   864→changes allergies
+   865→changes nutrition goal
+   866→adds water
+   867→
+   868→invalidate Coach context cache.
+   869→
+   870→Rebuild context.
+   871→
+   872→This is mandatory.
+   873→
+   874→========================================================
+   875→19. DAILY COACH SNAPSHOT
+   876→========================================================
+   877→
+   878→Create a daily snapshot.
+   879→
+   880→Example:
+   881→
+   882→Coach Snapshot
+   883→
+   884→Date
+   885→18 Sep 2026
+   886→
+   887→Meals logged
+   888→3 / 4
+   889→
+   890→Calories
+   891→1,245 / 2,573
+   892→
+   893→Protein
+   894→48 / 68 g
+   895→
+   896→Fiber
+   897→19 / 36 g
+   898→
+   899→Water
+   900→5 / 8
+   901→
+   902→Next meal:
+   903→Dinner
+   904→
+   905→Priority:
+   906→Increase fiber + protein while respecting profile constraints.
+   907→
+   908→This snapshot can be shown on Home and Coach.
+   909→
+   910→========================================================
+   911→20. FULL-DAY PLAN GENERATION
+   912→========================================================
+   913→
+   914→Create:
+   915→
+   916→POST /api/coach/daily-plan
+   917→
+   918→Input:
+   919→
+   920→user context
+   921→
+   922→Output:
+   923→
+   924→{
+   925→  "date": "...",
+   926→  "summary": "...",
+   927→  "meals": [
+   928→    {
+   929→      "meal_slot": "Breakfast",
+   930→      "status": "logged",
+   931→      "foods": []
+   932→    },
+   933→    {
+   934→      "meal_slot": "Lunch",
+   935→      "status": "logged",
+   936→      "foods": []
+   937→    },
+   938→    {
+   939→      "meal_slot": "Snack",
+   940→      "status": "recommended",
+   941→      "foods": []
+   942→    },
+   943→    {
+   944→      "meal_slot": "Dinner",
+   945→      "status": "recommended",
+   946→      "foods": []
+   947→    }
+   948→  ],
+   949→  "nutrition_summary": {},
+   950→  "reasoning": "...",
+   951→  "evidence": []
+   952→}
+   953→
+   954→IMPORTANT:
+   955→
+   956→Do not overwrite logged meals.
+   957→
+   958→The Coach should distinguish:
+   959→
+   960→LOGGED
+   961→
+   962→from
+   963→
+   964→RECOMMENDED
+   965→
+   966→========================================================
+   967→21. PLAN THE REST OF MY DAY
+   968→========================================================
+   969→
+   970→This should be a dedicated feature.
+   971→
+   972→User taps:
+   973→
+   974→"Plan the rest of my day"
+   975→
+   976→The system identifies:
+   977→
+   978→completed meals
+   979→
+   980→remaining meal slots
+   981→
+   982→remaining nutrition
+   983→
+   984→then creates:
+   985→
+   986→SNACK
+   987→+
+   988→DINNER
+   989→
+   990→or:
+   991→
+   992→LUNCH
+   993→+
+   994→SNACK
+   995→+
+   996→DINNER
+   997→
+   998→depending on the current time.
+   999→
+  1000→Example:
+  1001→
+  1002→REMAINING TODAY
+  1003→
+  1004→1,120 kcal
+  1005→
+  1006→Protein:
+  1007→32 g
+  1008→
+  1009→Fiber:
+  1010→18 g
+  1011→
+  1012→The Coach might produce:
+  1013→
+  1014→4:30 PM — Snack
+  1015→
+  1016→Greek yogurt + fruit
+  1017→
+  1018→8:00 PM — Dinner
+  1019→
+  1020→Vegetable dal + roti + salad
+  1021→
+  1022→The actual candidate nutrition MUST be calculated by the backend.
+  1023→
+  1024→========================================================
+  1025→22. CANDIDATE MEAL ENGINE
+  1026→========================================================
+  1027→
+  1028→Do NOT ask Mistral to invent nutrition values.
+  1029→
+  1030→Generate candidates.
+  1031→
+  1032→For example:
+  1033→
+  1034→Candidate A:
+  1035→Dal + Roti + Salad
+  1036→
+  1037→Candidate B:
+  1038→Vegetable Khichdi + Curd
+  1039→
+  1040→Candidate C:
+  1041→Paneer + Vegetables + Roti
+  1042→
+  1043→Calculate each candidate deterministically.
+  1044→
+  1045→Then apply:
+  1046→
+  1047→1. allergies
+  1048→2. dietary restrictions
+  1049→3. disease constraints
+  1050→4. nutrition suitability
+  1051→5. personalization
+  1052→6. evidence
+  1053→
+  1054→Then ask Mistral to rank/reason.
+  1055→
+  1056→========================================================
+  1057→23. COACH RESPONSE SCHEMA
+  1058→========================================================
+  1059→
+  1060→Require structured output.
+  1061→
+  1062→Example:
+  1063→
+  1064→{
+  1065→  "intent": "plan_rest_of_day",
+  1066→
+  1067→  "summary": "...",
+  1068→
+  1069→  "daily_status": {
+  1070→    "calories_remaining": 1120,
+  1071→    "protein_remaining": 32,
+  1072→    "fiber_remaining": 18
+  1073→  },
+  1074→
+  1075→  "recommendations": [
+  1076→    {
+  1077→      "meal_slot": "Dinner",
+  1078→      "candidate_id": "meal_123",
+  1079→      "name": "Vegetable Dal + Roti + Salad",
+  1080→      "reason": "...",
+  1081→      "nutrition": {
+  1082→        "calories": 480,
+  1083→        "protein": 22,
+  1084→        "carbs": 62,
+  1085→        "fat": 12,
+  1086→        "fiber": 14
+  1087→      }
+  1088→    }
+  1089→  ],
+  1090→
+  1091→  "evidence": [],
+  1092→
+  1093→  "confidence": "moderate"
+  1094→}
+  1095→
+  1096→Nutrition values must come from deterministic calculation.
+  1097→
+  1098→========================================================
+  1099→24. INTENT DETECTION
+  1100→========================================================
+  1101→
+  1102→Support intents:
+  1103→
+  1104→today_summary
+  1105→
+  1106→meal_history
+  1107→
+  1108→next_meal
+  1109→
+  1110→plan_rest_of_day
+  1111→
+  1112→nutrition_gap
+  1113→
+  1114→nutrition_progress
+  1115→
+  1116→meal_explanation
+  1117→
+  1118→recommendation_explanation
+  1119→
+  1120→water_status
+  1121→
+  1122→weekly_review
+  1123→
+  1124→food_question
+  1125→
+  1126→meal_swap
+  1127→
+  1128→general_nutrition_question
+  1129→
+  1130→unknown
+  1131→
+  1132→Use structured intent classification.
+  1133→
+  1134→========================================================
+  1135→25. MEAL SWAPS
+  1136→========================================================
+  1137→
+  1138→User:
+  1139→
+  1140→"I don't want this dinner."
+  1141→
+  1142→Coach:
+  1143→
+  1144→"Sure. Here are alternatives that fit your current context."
+  1145→
+  1146→Candidate 1
+  1147→
+  1148→Candidate 2
+  1149→
+  1150→Candidate 3
+  1151→
+  1152→Apply the same:
+  1153→
+  1154→allergy
+  1155→diet
+  1156→disease
+  1157→nutrition
+  1158→preference
+  1159→
+  1160→filters.
+  1161→
+  1162→========================================================
+  1163→26. USER PREFERENCES
+  1164→========================================================
+  1165→
+  1166→The Coach should understand:
+  1167→
+  1168→Vegetarian
+  1169→Vegan
+  1170→Eggetarian
+  1171→Non-vegetarian
+  1172→
+  1173→Cuisine:
+  1174→
+  1175→Indian
+  1176→South Indian
+  1177→North Indian
+  1178→etc.
+  1179→
+  1180→Allergies:
+  1181→
+  1182→Peanuts
+  1183→Milk
+  1184→Shellfish
+  1185→etc.
+  1186→
+  1187→Never recommend an excluded allergen.
+  1188→
+  1189→Allergen filtering happens BEFORE Mistral ranking.
+  1190→
+  1191→========================================================
+  1192→27. MULTILINGUAL AI COACH
+  1193→========================================================
+  1194→
+  1195→Support:
+  1196→
+  1197→English
+  1198→Tamil
+  1199→Telugu
+  1200→Hindi
+  1201→Kannada
+  1202→
+  1203→Also support romanized Indian language input.
+  1204→
+  1205→Examples:
+  1206→
+  1207→"nenu ivala em tinnanu?"
+  1208→
+  1209→"innaiku naan enna sapten?"
+  1210→
+  1211→"maine aaj kya khaya?"
+  1212→
+  1213→"ivattu naanu enu tinde?"
+  1214→
+  1215→The Coach should respond in the user's selected language.
+  1216→
+  1217→If the user asks in another supported language:
+  1218→
+  1219→respond in that language when appropriate.
+  1220→
+  1221→Nutrition values remain unchanged.
+  1222→
+  1223→========================================================
+  1224→28. MULTILINGUAL EXAMPLE
+  1225→========================================================
+  1226→
+  1227→Telugu:
+  1228→
+  1229→"నేను ఈ రోజు ఏమి తిన్నాను?"
+  1230→
+  1231→Response:
+  1232→
+  1233→"ఈ రోజు మీరు ఉదయం 2 ఇడ్లీలు మరియు సాంబార్ తీసుకున్నారు..."
+  1234→
+  1235→Tamil:
+  1236→
+  1237→"நான் இன்று என்ன சாப்பிட்டேன்?"
+  1238→
+  1239→Response:
+  1240→
+  1241→"இன்று நீங்கள் காலை உணவாக 2 இட்லி மற்றும் சாம்பார் எடுத்துள்ளீர்கள்..."
+  1242→
+  1243→Keep food names localized where possible but preserve canonical IDs internally.
+  1244→
+  1245→========================================================
+  1246→29. COACH MEMORY
+  1247→========================================================
+  1248→
+  1249→The Coach should use persisted product data such as:
+  1250→
+  1251→meal history
+  1252→preferences
+  1253→health profile
+  1254→goals
+  1255→
+  1256→Do NOT create an uncontrolled AI memory that stores arbitrary sensitive health information.
+  1257→
+  1258→Use explicit structured product data.
+  1259→
+  1260→========================================================
+  1261→30. DAILY PLAN VISUALIZATION
+  1262→========================================================
+  1263→
+  1264→Create a beautiful timeline.
+  1265→
+  1266→TODAY'S PLAN
+  1267→
+  1268→08:00
+  1269→Breakfast
+  1270→✓ Logged
+  1271→
+  1272→13:00
+  1273→Lunch
+  1274→✓ Logged
+  1275→
+  1276→16:30
+  1277→Snack
+  1278→○ Recommended
+  1279→
+  1280→20:00
+  1281→Dinner
+  1282→○ Recommended
+  1283→
+  1284→Each card:
+  1285→
+  1286→meal name
+  1287→foods
+  1288→nutrition
+  1289→status
+  1290→reason
+  1291→
+  1292→Buttons:
+  1293→
+  1294→Log this meal
+  1295→
+  1296→Swap
+  1297→
+  1298→View details
+  1299→
+  1300→========================================================
+  1301→31. COACH HOME CARD
+  1302→========================================================
+  1303→
+  1304→On Home show:
+  1305→
+  1306→AI COACH
+  1307→
+  1308→"Your nutrition snapshot is ready."
+  1309→
+  1310→Example:
+  1311→
+  1312→3 meals logged
+  1313→
+  1314→1,245 kcal consumed
+  1315→
+  1316→1,328 kcal remaining
+  1317→
+  1318→Protein:
+  1319→20 g remaining
+  1320→
+  1321→Fiber:
+  1322→17 g remaining
+  1323→
+  1324→Next:
+  1325→
+  1326→"Plan the rest of my day →"
+  1327→
+  1328→========================================================
+  1329→32. CHAT SUGGESTIONS
+  1330→========================================================
+  1331→
+  1332→Starter prompts:
+  1333→
+  1334→🍽 What did I eat today?
+  1335→
+  1336→🥗 What should I eat next?
+  1337→
+  1338→📅 Plan the rest of my day
+  1339→
+  1340→📊 How am I doing today?
+  1341→
+  1342→💧 How much water do I have left?
+  1343→
+  1344→🔄 Give me another dinner
+  1345→
+  1346→💡 What should I improve?
+  1347→
+  1348→========================================================
+  1349→33. RESPONSE STYLE
+  1350→========================================================
+  1351→
+  1352→The Coach should be:
+  1353→
+  1354→friendly
+  1355→clear
+  1356→concise
+  1357→supportive
+  1358→non-judgmental
+  1359→evidence-aware
+  1360→
+  1361→Avoid:
+  1362→
+  1363→long essays
+  1364→medical jargon
+  1365→fear
+  1366→shame
+  1367→unnecessary warnings
+  1368→generic motivational content
+  1369→
+  1370→Prefer:
+  1371→
+  1372→short answer
+  1373→+
+  1374→numbers
+  1375→+
+  1376→reason
+  1377→+
+  1378→next action
+  1379→
+  1380→========================================================
+  1381→34. VALIDATION
+  1382→========================================================
+  1383→
+  1384→Every recommendation must pass validation.
+  1385→
+  1386→Validate:
+  1387→
+  1388→nutrition values
+  1389→allergies
+  1390→diet
+  1391→health constraints
+  1392→candidate existence
+  1393→evidence
+  1394→schema
+  1395→unsupported claims
+  1396→
+  1397→If validation fails:
+  1398→
+  1399→DO NOT show the recommendation.
+  1400→
+  1401→Generate another candidate or provide a safe fallback.
+  1402→
+  1403→========================================================
+  1404→35. FALLBACK
+  1405→========================================================
+  1406→
+  1407→If Mistral is unavailable:
+  1408→
+  1409→The user should still be able to:
+  1410→
+  1411→view meals
+  1412→view nutrition
+  1413→view daily summary
+  1414→view deterministic candidate meals
+  1415→
+  1416→Do not display:
+  1417→
+  1418→"SLM unavailable"
+  1419→
+  1420→unless necessary.
+  1421→
+  1422→Prefer:
+  1423→
+  1424→"Your nutrition data is available. Personalized coaching is temporarily unavailable."
+  1425→
+  1426→Never fabricate an AI response.
+  1427→
+  1428→========================================================
+  1429→36. PERFORMANCE
+  1430→========================================================
+  1431→
+  1432→Do not regenerate the entire Coach context for every UI render.
+  1433→
+  1434→Use:
+  1435→
+  1436→request-based context generation
+  1437→appropriate caching
+  1438→context invalidation
+  1439→
+  1440→Invalidate after:
+  1441→
+  1442→meal mutation
+  1443→profile mutation
+  1444→goal mutation
+  1445→diet mutation
+  1446→allergy mutation
+  1447→water mutation
+  1448→
+  1449→========================================================
+  1450→37. SECURITY
+  1451→========================================================
+  1452→
+  1453→Never expose:
+  1454→
+  1455→Mistral API key
+  1456→Genkit credentials
+  1457→database credentials
+  1458→RAG infrastructure
+  1459→
+  1460→to frontend/mobile.
+  1461→
+  1462→The Coach API should authenticate the user.
+  1463→
+  1464→Never allow:
+  1465→
+  1466→user A to query user B's nutrition context.
+  1467→
+  1468→========================================================
+  1469→38. API DESIGN
+  1470→========================================================
+  1471→
+  1472→Implement or adapt:
+  1473→
+  1474→GET
+  1475→/api/coach/context
+  1476→
+  1477→POST
+  1478→/api/coach/chat
+  1479→
+  1480→POST
+  1481→/api/coach/daily-plan
+  1482→
+  1483→POST
+  1484→/api/coach/plan-rest-of-day
+  1485→
+  1486→POST
+  1487→/api/coach/meal-swap
+  1488→
+  1489→GET
+  1490→/api/coach/snapshot
+  1491→
+  1492→Reuse existing backend architecture wherever possible.
+  1493→
+  1494→Do not create duplicate data sources.
+  1495→
+  1496→========================================================
+  1497→39. DATABASE
+  1498→========================================================
+  1499→
+  1500→If required, create:
+  1501→
+  1502→coach_sessions
+  1503→
+  1504→coach_messages
+  1505→
+  1506→coach_daily_plans
+  1507→
+  1508→coach_recommendations
+  1509→
+  1510→But do not store unnecessary raw health data.
+  1511→
+  1512→Suggested:
+  1513→
+  1514→coach_messages:
+  1515→
+  1516→id
+  1517→user_id
+  1518→session_id
+  1519→role
+  1520→intent
+  1521→message
+  1522→created_at
+  1523→
+  1524→coach_recommendations:
+  1525→
+  1526→id
+  1527→user_id
+  1528→date
+  1529→meal_slot
+  1530→candidate_id
+  1531→reason
+  1532→created_at
+  1533→
+  1534→========================================================
+  1535→40. FRONTEND COMPONENTS
+  1536→========================================================
+  1537→
+  1538→Create:
+  1539→
+  1540→AICoachCard
+  1541→
+  1542→AICoachScreen
+  1543→
+  1544→CoachChat
+  1545→
+  1546→CoachMessage
+  1547→
+  1548→CoachInput
+  1549→
+  1550→CoachSuggestionChips
+  1551→
+  1552→DailyNutritionSnapshot
+  1553→
+  1554→DailyMealTimeline
+  1555→
+  1556→CoachRecommendationCard
+  1557→
+  1558→MealSwapSheet
+  1559→
+  1560→EvidenceCard
+  1561→
+  1562→NutritionGapCard
+  1563→
+  1564→DailyPlanCard
+  1565→
+  1566→========================================================
+  1567→41. MOBILE UX
+  1568→========================================================
+  1569→
+  1570→For Android:
+  1571→
+  1572→AI Coach should be accessible from:
+  1573→
+  1574→Home
+  1575→
+  1576→and
+  1577→
+  1578→bottom navigation / dedicated Coach entry.
+  1579→
+  1580→Mobile layout:
+  1581→
+  1582→Header
+  1583→
+  1584→AI Coach
+  1585→
+  1586→Today's snapshot
+  1587→
+  1588→Today's meal timeline
+  1589→
+  1590→Next meal
+  1591→
+  1592→Chat
+  1593→
+  1594→Input:
+  1595→
+  1596→"Ask your coach..."
+  1597→
+  1598→Mic should NOT be implemented unless explicitly requested.
+  1599→
+  1600→Text is enough.
+  1601→
+  1602→========================================================
+  1603→42. WEB UX
+  1604→========================================================
+  1605→
+  1606→For web:
+  1607→
+  1608→Create a dedicated:
+  1609→
+  1610→/coach
+  1611→
+  1612→page.
+  1613→
+  1614→Desktop layout:
+  1615→
+  1616→LEFT:
+  1617→
+  1618→Today's nutrition
+  1619→
+  1620→CENTER:
+  1621→
+  1622→Coach conversation
+  1623→
+  1624→RIGHT:
+  1625→
+  1626→Today's meal plan
+  1627→
+  1628→Responsive behavior:
+  1629→
+  1630→desktop
+  1631→tablet
+  1632→mobile
+  1633→
+  1634→========================================================
+  1635→43. COACH CONVERSATION EXAMPLE
+  1636→========================================================
+  1637→
+  1638→USER:
+  1639→
+  1640→"What should I eat tonight?"
+  1641→
+  1642→SYSTEM CONTEXT:
+  1643→
+  1644→Breakfast:
+  1645→2 Idli + Sambar
+  1646→
+  1647→Lunch:
+  1648→Rice + Dal + Vegetables
+  1649→
+  1650→Snack:
+  1651→Apple + Almonds
+  1652→
+  1653→Remaining:
+  1654→
+  1655→Calories:
+  1656→1,050 kcal
+  1657→
+  1658→Protein:
+  1659→31 g
+  1660→
+  1661→Fiber:
+  1662→16 g
+  1663→
+  1664→Condition:
+  1665→
+  1666→T2DM
+  1667→
+  1668→Diet:
+  1669→
+  1670→Vegetarian
+  1671→
+  1672→Coach:
+  1673→
+  1674→"For dinner, a vegetable dal bowl with 2 rotis and a side salad could fit your remaining nutrition while adding protein and fiber. I prioritized a balanced carbohydrate portion because your profile includes T2DM.
+  1675→
+  1676→Estimated nutrition:
+  1677→480 kcal
+  1678→22 g protein
+  1679→62 g carbs
+  1680→12 g fat
+  1681→14 g fiber
+  1682→
+  1683→Why:
+  1684→• fits your remaining nutrition
+  1685→• vegetarian
+  1686→• avoids your listed allergens
+  1687→• adds protein and fiber
+  1688→• checked against the available nutrition guidance
+  1689→
+  1690→[Log this meal] [Swap meal]"
+  1691→
+  1692→========================================================
+  1693→44. FULL-DAY EXAMPLE
+  1694→========================================================
+  1695→
+  1696→USER:
+  1697→
+  1698→"Plan my entire day."
+  1699→
+  1700→Coach:
+  1701→
+  1702→YOUR NUTRISLM DAY
+  1703→
+  1704→Breakfast
+  1705→2 Idli + Sambar
+  1706→
+  1707→Lunch
+  1708→Rice + Dal + Vegetables
+  1709→
+  1710→Snack
+  1711→Apple + Almonds
+  1712→
+  1713→Dinner
+  1714→Vegetable Dal + Roti + Salad
+  1715→
+  1716→Daily overview:
+  1717→
+  1718→Calories:
+  1719→target / projected
+  1720→
+  1721→Protein:
+  1722→target / projected
+  1723→
+  1724→Fiber:
+  1725→target / projected
+  1726→
+  1727→Water:
+  1728→target / current
+  1729→
+  1730→Then:
+  1731→
+  1732→"Your plan prioritizes your configured dietary preferences and health constraints while using verified nutrition data."
+  1733→
+  1734→========================================================
+  1735→45. DON'T OVERPROMISE
+  1736→========================================================
+  1737→
+  1738→Never say:
+  1739→
+  1740→"this will control your blood sugar"
+  1741→
+  1742→"this will cure diabetes"
+  1743→
+  1744→"this will treat CKD"
+  1745→
+  1746→"this meal is medically safe"
+  1747→
+  1748→"this guarantees weight loss"
+  1749→
+  1750→Instead:
+  1751→
+  1752→"may fit your configured nutrition targets"
+  1753→
+  1754→"considered your health profile"
+  1755→
+  1756→"aligned with the available dietary guidance"
+  1757→
+  1758→"discuss individualized medical targets with your healthcare professional"
+  1759→
+  1760→========================================================
+  1761→46. CRITICAL SOURCE-OF-TRUTH RULE
+  1762→========================================================
+  1763→
+  1764→This is NON-NEGOTIABLE.
+  1765→
+  1766→The Coach is NOT the source of truth.
+  1767→
+  1768→SOURCE OF TRUTH:
+  1769→
+  1770→Food nutrition
+  1771→→ trusted nutrition database
+  1772→
+  1773→Nutrition calculation
+  1774→→ deterministic backend calculator
+  1775→
+  1776→Logged meals
+  1777→→ database
+  1778→
+  1779→Daily summary
+  1780→→ database aggregation
+  1781→
+  1782→Health profile
+  1783→→ user profile
+  1784→
+  1785→Disease constraints
+  1786→→ configured evidence-backed constraint engine
+  1787→
+  1788→Evidence
+  1789→→ RAG
+  1790→
+  1791→AI reasoning
+  1792→→ Mistral / SLM
+  1793→
+  1794→Coach
+  1795→→ synthesizes verified information
+  1796→
+  1797→========================================================
+  1798→47. TESTING
+  1799→========================================================
+  1800→
+  1801→Create automated tests.
+  1802→
+  1803→Test:
+  1804→
+  1805→1. Today summary
+  1806→
+  1807→2. Meal history
+  1808→
+  1809→3. Next meal
+  1810→
+  1811→4. Full-day plan
+  1812→
+  1813→5. Plan rest of day
+  1814→
+  1815→6. Nutrition gaps
+  1816→
+  1817→7. Water
+  1818→
+  1819→8. Meal swaps
+  1820→
+  1821→9. T2DM
+  1822→
+  1823→10. CKD
+  1824→
+  1825→11. CVD
+  1826→
+  1827→12. Allergies
+  1828→
+  1829→13. Vegetarian
+  1830→
+  1831→14. Multilingual
+  1832→
+  1833→15. Romanized language
+  1834→
+  1835→16. New meal invalidates context
+  1836→
+  1837→17. Edited meal invalidates context
+  1838→
+  1839→18. Deleted meal invalidates context
+  1840→
+  1841→19. Profile change invalidates context
+  1842→
+  1843→20. Recommendation changes after meal logging
+  1844→
+  1845→21. Mistral failure
+  1846→
+  1847→22. Invalid model JSON
+  1848→
+  1849→23. Unsupported recommendation
+  1850→
+  1851→24. Database nutrition overrides model nutrition
+  1852→
+  1853→25. User isolation
+  1854→
+  1855→========================================================
+  1856→48. CRITICAL TEST
+  1857→========================================================
+  1858→
+  1859→Mock Mistral response:
+  1860→
+  1861→"2 eggs = 10 kcal."
+  1862→
+  1863→Database returns:
+  1864→
+  1865→actual nutrition.
+  1866→
+  1867→Expected:
+  1868→
+  1869→Coach must display the deterministic database value.
+  1870→
+  1871→Never the model value.
+  1872→
+  1873→========================================================
+  1874→49. STALE CONTEXT TEST
+  1875→========================================================
+  1876→
+  1877→Initial:
+  1878→
+  1879→Breakfast logged.
+  1880→
+  1881→Coach:
+  1882→
+  1883→"What should I eat next?"
+  1884→
+  1885→Then:
+  1886→
+  1887→User logs lunch.
+  1888→
+  1889→Then asks:
+  1890→
+  1891→"What should I eat next?"
+  1892→
+  1893→Expected:
+  1894→
+  1895→Coach recommendation must use:
+  1896→
+  1897→Breakfast
+  1898→+
+  1899→Lunch
+  1900→+
+  1901→new remaining nutrition.
+  1902→
+  1903→It must NOT use the old context.
+  1904→
+  1905→========================================================
+  1906→50. RECOMMENDATION REPETITION TEST
+  1907→========================================================
+  1908→
+  1909→If the Coach recommended:
+  1910→
+  1911→Dal + Roti + Salad
+  1912→
+  1913→previously,
+  1914→
+  1915→then after the user logs another meal:
+  1916→
+  1917→generate a fresh recommendation where appropriate.
+  1918→
+  1919→Do not blindly return the same meal.
+  1920→
+  1921→Use recommendation history.
+  1922→
+  1923→========================================================
+  1924→51. UI QUALITY
+  1925→========================================================
+  1926→
+  1927→The Coach UI must look like a premium startup product.
+  1928→
+  1929→Use:
+  1930→
+  1931→beautiful message cards
+  1932→nutrition chips
+  1933→meal cards
+  1934→progress indicators
+  1935→evidence cards
+  1936→clear CTAs
+  1937→subtle animations
+  1938→excellent typography
+  1939→proper spacing
+  1940→
+  1941→Avoid:
+  1942→
+  1943→generic ChatGPT clone appearance.
+  1944→
+  1945→NutriSLM should have its own identity.
+  1946→
+  1947→========================================================
+  1948→52. STARTUP DIFFERENTIATOR
+  1949→========================================================
+  1950→
+  1951→The key product differentiator is:
+  1952→
+  1953→A normal chatbot answers questions.
+  1954→
+  1955→NutriSLM AI Coach understands the user's nutrition state.
+  1956→
+  1957→Therefore:
+  1958→
+  1959→User asks:
+  1960→
+  1961→"What should I eat?"
+  1962→
+  1963→Generic AI:
+  1964→
+  1965→suggests a random healthy meal.
+  1966→
+  1967→NutriSLM:
+  1968→
+  1969→checks:
+  1970→
+  1971→what you already ate
+  1972→what remains
+  1973→your health profile
+  1974→your allergies
+  1975→your diet
+  1976→your goals
+  1977→your meal history
+  1978→nutrition evidence
+  1979→
+  1980→then recommends an appropriate candidate.
+  1981→
+  1982→This distinction must be reflected in both architecture and UI.
+  1983→
+  1984→========================================================
+  1985→53. FINAL COACH EXPERIENCE
+  1986→========================================================
+  1987→
+  1988→The ideal experience is:
+  1989→
+  1990→USER:
+  1991→
+  1992→"Coach, what should I eat tonight?"
+  1993→
+  1994→↓
+  1995→
+  1996→NUTRISLM
+  1997→
+  1998→Reads today's meals
+  1999→
+  2000→↓
+
+[showing lines 1-2000 of 2244; use offset=2001 with limit to continue reading]

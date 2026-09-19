@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { withApi, parseJsonBody, AppError } from "@/lib/api-utils";
 import { requireUser } from "@/lib/auth";
+import { invalidateCoachContext } from "@/lib/coach/context-builder";
 import { db } from "@/lib/db";
 import { computeDailyTargets } from "@/lib/nutrition/targets";
 import { round } from "@/lib/format";
@@ -149,6 +150,7 @@ export const PUT = withApi("profile_put", async ({ req }: { req: NextRequest }) 
   });
 
   const profile = await db.profile.findUniqueOrThrow({ where: { userId: user.id } });
+  invalidateCoachContext(user.id); // profile/diet/allergy/goal change → rebuild coach context (spec §18)
   void round; // keep formatter import referenced
   return NextResponse.json(profileResponse(profile));
 });

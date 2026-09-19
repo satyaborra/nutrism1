@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { withApi, parseJsonBody, AppError } from "@/lib/api-utils";
 import { requireUser } from "@/lib/auth";
+import { invalidateCoachContext } from "@/lib/coach/context-builder";
 import { db } from "@/lib/db";
 import { getFood, convertQuantity, resolveFoodName } from "@/lib/nutrition/food-repository";
 import { calculateFoodLine, sumNutrition, foodToRef } from "@/lib/nutrition/calculator";
@@ -185,6 +186,9 @@ export const POST = withApi("log_meal", async ({ req }: { req: NextRequest }) =>
   });
 
   const compliance = await mealComplianceSummary(conditions, result.totals, result.incomplete);
+
+  // Coach context must reflect the new meal immediately (spec §18)
+  invalidateCoachContext(user.id);
 
   return NextResponse.json({
     mealId: result.meal.id,

@@ -38,6 +38,7 @@ import { HydrationWidget } from "../hydration-widget";
 import { RecommendationCard } from "../recommendation-card";
 import { useNutriStore, MEAL_TYPE_ICON } from "../store";
 import { FadeIn } from "../fade-in";
+import { CoachHomeCard } from "../coach-home-card";
 
 /* ------------------------------------------------------------------ */
 /* Hero banner: greeting + quote + leaf decorations                    */
@@ -724,6 +725,9 @@ export function HomeView() {
 
         <aside className="space-y-5" aria-label="Daily shortcuts">
           <FadeIn delay={0.06}>
+            <CoachHomeCard />
+          </FadeIn>
+          <FadeIn delay={0.08}>
             <HealthMattersCard />
           </FadeIn>
           <FadeIn delay={0.1}>

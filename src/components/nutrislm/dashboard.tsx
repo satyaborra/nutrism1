@@ -8,6 +8,7 @@ import { HomeView } from "./views/home-view";
 import { LogView } from "./views/log-view";
 import { MealsView } from "./views/meals-view";
 import { InsightsView } from "./views/insights-view";
+import { CoachView } from "./views/coach-view";
 import { ProfileView } from "./views/profile-view";
 import { GoalsView } from "./views/goals-view";
 import { SettingsView } from "./views/settings-view";
@@ -23,6 +24,8 @@ export function Dashboard() {
       return <MealsView />;
     case "insights":
       return <InsightsView />;
+    case "coach":
+      return <CoachView />;
     case "profile":
       return <ProfileView />;
     case "goals":
