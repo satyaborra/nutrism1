@@ -618,3 +618,17 @@ Work Log:
 Stage Summary:
 - The "so many errors in the sections" is fixed at the root: dead sessions now resolve into a single graceful sign-in redirect with a friendly explanation instead of an error flood; all sections verified healthy with a valid session.
 - Files: src/lib/client/api.ts, src/hooks/use-toast.ts, src/components/nutrislm/store.ts, src/components/nutrislm/app.tsx, src/components/nutrislm/auth-view.tsx, src/components/nutrislm/views/insights-view.tsx (stat unit spans). Zip rebuilt after this entry.
+
+---
+Task ID: 34
+Agent: Z.ai Code (main)
+Task: Push the complete project to the user's GitHub repo (satyaborra/nutrism1).
+
+Work Log:
+- User provided repo URL https://github.com/satyaborra/nutrism1 and a classic PAT (repo scope).
+- Inspected remote: only an initial commit with README.md. Local project had no root README, so merge was conflict-free.
+- Committed db drift, merged origin/main with --allow-unrelated-histories (user's README kept), pushed main: fc6a08b..0de8301 — 320 files incl. full src/, prisma/, public/ (with 31MB zip deliverable), scripts, configs.
+- Removed the token from .git/config immediately after push; advised the user to revoke it in GitHub settings since it was shared in chat.
+
+Stage Summary:
+- Repo live at https://github.com/satyaborra/nutrism1 (main branch, HEAD 0de8301). Token scrubbed from local config; push reproducible via a fresh PAT if needed later.
