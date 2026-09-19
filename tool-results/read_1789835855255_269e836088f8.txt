@@ -1,0 +1,802 @@
+     1→"use client";
+     2→
+     3→/**
+     4→ * Health Profile view — premium rebuild.
+     5→ *
+     6→ * Hero (ViewHero) with goal chip + live target stats, "Basic Information" card
+     7→ * with inline editing (server-mirrored validation), a "Daily targets" card with
+     8→ * the calorie hero + macro grid, "Diet & safety" condition/allergy chips and a
+     9→ * muted "How your plan is computed" explainer. Numbers are ALWAYS
+    10→ * server-computed (api.getProfile / api.updateProfile responses) — never
+    11→ * invented client-side.
+    12→ */
+    13→import { Fragment, useEffect, useRef, useState } from "react";
+    14→import {
+    15→  Activity,
+    16→  AlertTriangle,
+    17→  ArrowRight,
+    18→  Cake,
+    19→  Check,
+    20→  Drumstick,
+    21→  Droplets,
+    22→  Flame,
+    23→  Footprints,
+    24→  Info,
+    25→  Loader2,
+    26→  Pencil,
+    27→  RefreshCw,
+    28→  Ruler,
+    29→  Scale,
+    30→  ShieldCheck,
+    31→  Sprout,
+    32→  Trophy,
+    33→  UserRound,
+    34→  Wheat,
+    35→  X,
+    36→  Zap,
+    37→} from "lucide-react";
+    38→import { Button } from "@/components/ui/button";
+    39→import { Card, CardAction, CardContent, CardHeader } from "@/components/ui/card";
+    40→import { Badge } from "@/components/ui/badge";
+    41→import { Input } from "@/components/ui/input";
+    42→import { Skeleton } from "@/components/ui/skeleton";
+    43→import { useToast } from "@/hooks/use-toast";
+    44→import { cn } from "@/lib/utils";
+    45→import { api, ApiError } from "@/lib/client/api";
+    46→import { formatGrams, formatKcal, formatShort } from "@/lib/client/format";
+    47→import type { ActivityLevel, Goal, ProfileResponse } from "@/lib/client/types";
+    48→import { useNutriStore, languageLabel } from "../store";
+    49→import { ProfileDialog } from "../profile-dialog";
+    50→import { FadeIn } from "../fade-in";
+    51→import { HeroStat, ViewHero } from "./view-hero";
+    52→
+    53→// ---------- Humanized labels (display only — values stay server-side) ----------
+    54→
+    55→const GOAL_LABELS: Record<Goal, string> = {
+    56→  lose_weight: "Lose weight",
+    57→  maintain: "Maintain",
+    58→  gain_muscle: "Gain muscle",
+    59→};
+    60→
+    61→const ACTIVITY_LABELS: Record<ActivityLevel, string> = {
+    62→  sedentary: "Sedentary",
+    63→  light: "Lightly active",
+    64→  moderate: "Moderately active",
+    65→  active: "Active",
+    66→  very_active: "Very active",
+    67→};
+    68→
+    69→const EVIDENCE_SOURCES = ["IFCT 2017", "USDA", "WHO", "ICMR-NIN", "ADA", "KDIGO"];
+    70→
+    71→const PIPELINE_STEPS = [
+    72→  "BMR (Mifflin-St Jeor)",
+    73→  "TDEE (× activity)",
+    74→  "Goal adjustment",
+    75→  "Clinical constraints",
+    76→];
+    77→
+    78→// ---------- Inline-edit validation (MIRRORS the server ranges in /api/profile) ----------
+    79→
+    80→type FieldKey = "age" | "heightCm" | "weightKg";
+    81→
+    82→const FIELD_LIMITS: Record<FieldKey, { min: number; max: number; message: string }> = {
+    83→  age: { min: 5, max: 120, message: "Age must be between 5 and 120." },
+    84→  heightCm: { min: 80, max: 250, message: "Height must be between 80 and 250 cm." },
+    85→  weightKg: { min: 15, max: 400, message: "Weight must be between 15 and 400 kg." },
+    86→};
+    87→
+    88→const FIELD_ORDER: FieldKey[] = ["age", "heightCm", "weightKg"];
+    89→
+    90→/** Keep digits and a single decimal dot; drop everything else. */
+    91→function sanitizeNumeric(v: string): string {
+    92→  let out = "";
+    93→  let dot = false;
+    94→  for (const ch of v) {
+    95→    if (ch >= "0" && ch <= "9") out += ch;
+    96→    else if (ch === "." && !dot) {
+    97→      out += ".";
+    98→      dot = true;
+    99→    }
+   100→  }
+   101→  return out;
+   102→}
+   103→
+   104→function validateDraft(draft: Record<FieldKey, string>): Partial<Record<FieldKey, string>> {
+   105→  const errors: Partial<Record<FieldKey, string>> = {};
+   106→  for (const key of FIELD_ORDER) {
+   107→    const raw = draft[key].trim();
+   108→    if (raw === "") continue; // empty = clear the value (null is allowed server-side)
+   109→    const n = Number(raw);
+   110→    if (!Number.isFinite(n) || n < FIELD_LIMITS[key].min || n > FIELD_LIMITS[key].max) {
+   111→      errors[key] = FIELD_LIMITS[key].message;
+   112→    }
+   113→  }
+   114→  return errors;
+   115→}
+   116→
+   117→const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+   118→
+   119→// ---------- Pieces ----------
+   120→
+   121→/** One basic-information row: icon chip + uppercase label + big value, or an inline input. */
+   122→function BasicRow({
+   123→  icon,
+   124→  iconTone,
+   125→  label,
+   126→  unit,
+   127→  value,
+   128→  inputId,
+   129→  editValue,
+   130→  error,
+   131→  onChange,
+   132→  fieldRef,
+   133→  disabled,
+   134→}: {
+   135→  icon: React.ReactNode;
+   136→  iconTone?: string;
+   137→  label: string;
+   138→  unit?: string;
+   139→  /** Server value; null renders "— not set". */
+   140→  value: string | null;
+   141→  /** When set, the row renders an editable input instead of the value. */
+   142→  inputId?: string;
+   143→  editValue?: string;
+   144→  error?: string;
+   145→  onChange?: (v: string) => void;
+   146→  fieldRef?: (el: HTMLDivElement | null) => void;
+   147→  disabled?: boolean;
+   148→}) {
+   149→  return (
+   150→    <div ref={fieldRef} className="scroll-mt-24 border-b border-dashed border-border/60 py-2.5 last:border-b-0">
+   151→      <div className="flex items-center justify-between gap-3">
+   152→        <div className="flex min-w-0 items-center gap-3">
+   153→          <span
+   154→            aria-hidden
+   155→            className={cn(
+   156→              "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl",
+   157→              iconTone ?? "bg-primary/10 text-primary",
+   158→            )}
+   159→          >
+   160→            {icon}
+   161→          </span>
+   162→          <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</span>
+   163→        </div>
+   164→        {inputId ? (
+   165→          <div className="flex flex-col items-end gap-1">
+   166→            <div className="flex items-center gap-1.5">
+   167→              <Input
+   168→                id={inputId}
+   169→                inputMode="decimal"
+   170→                autoComplete="off"
+   171→                value={editValue ?? ""}
+   172→                onChange={(e) => onChange?.(e.target.value)}
+   173→                aria-invalid={error ? true : undefined}
+   174→                aria-describedby={error ? `${inputId}-error` : undefined}
+   175→                disabled={disabled}
+   176→                className="h-10 w-24 text-right text-sm font-semibold tabular-nums"
+   177→              />
+   178→              <span className="w-10 text-xs text-muted-foreground">{unit}</span>
+   179→            </div>
+   180→            {error && (
+   181→              <p id={`${inputId}-error`} role="alert" className="max-w-56 text-right text-xs font-medium text-destructive">
+   182→                {error}
+   183→              </p>
+   184→            )}
+   185→          </div>
+   186→        ) : (
+   187→          <div className="text-right">
+   188→            {value != null ? (
+   189→              <span className="text-lg font-bold tabular-nums text-emerald-950 dark:text-emerald-50">
+   190→                {value}
+   191→                {unit ? <span className="ml-1 text-xs font-medium text-muted-foreground">{unit}</span> : null}
+   192→              </span>
+   193→            ) : (
+   194→              <span className="text-lg font-bold text-muted-foreground/50">
+   195→                — <span className="text-xs font-medium">not set</span>
+   196→              </span>
+   197→            )}
+   198→          </div>
+   199→        )}
+   200→      </div>
+   201→    </div>
+   202→  );
+   203→}
+   204→
+   205→export function ProfileView() {
+   206→  const { toast } = useToast();
+   207→  const user = useNutriStore((s) => s.user);
+   208→  const profileBrief = useNutriStore((s) => s.profileBrief);
+   209→  const dataVersion = useNutriStore((s) => s.dataVersion);
+   210→  const bumpData = useNutriStore((s) => s.bumpData);
+   211→
+   212→  const [data, setData] = useState<ProfileResponse | null>(null);
+   213→  const [error, setError] = useState<string | null>(null);
+   214→  const [reloadKey, setReloadKey] = useState(0);
+   215→  const [editorOpen, setEditorOpen] = useState(false);
+   216→
+   217→  // Inline editing state for the Basic Information card.
+   218→  const [editing, setEditing] = useState(false);
+   219→  const [saving, setSaving] = useState(false);
+   220→  const [draft, setDraft] = useState<Record<FieldKey, string>>({ age: "", heightCm: "", weightKg: "" });
+   221→  const [fieldErrors, setFieldErrors] = useState<Partial<Record<FieldKey, string>>>({});
+   222→  const fieldRefs = useRef<Record<FieldKey, HTMLDivElement | null>>({ age: null, heightCm: null, weightKg: null });
+   223→
+   224→  // Fetch on mount + whenever dataVersion changes, with ONE silent retry before
+   225→  // surfacing the error banner. While the editor dialog is open it refreshes
+   226→  // the data itself, so we do not refetch underneath it.
+   227→  useEffect(() => {
+   228→    if (editorOpen) return;
+   229→    let alive = true;
+   230→    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+   231→    const run = (attempt: number) => {
+   232→      api
+   233→        .getProfile()
+   234→        .then((res) => {
+   235→          if (alive) {
+   236→            setData(res);
+   237→            setError(null);
+   238→          }
+   239→        })
+   240→        .catch(() => {
+   241→          if (!alive) return;
+   242→          if (attempt < 1) {
+   243→            retryTimer = setTimeout(() => {
+   244→              if (alive) run(attempt + 1);
+   245→            }, 900);
+   246→          } else {
+   247→            setError("Could not load your profile. Check your connection and try again.");
+   248→          }
+   249→        });
+   250→    };
+   251→    run(0);
+   252→    return () => {
+   253→      alive = false;
+   254→      clearTimeout(retryTimer);
+   255→    };
+   256→  }, [editorOpen, dataVersion, reloadKey]);
+   257→
+   258→  const p = data?.profile;
+   259→  const t = data?.computedTargets;
+   260→  const firstName = user?.name.split(" ")[0];
+   261→
+   262→  function startEdit() {
+   263→    if (!p) return;
+   264→    setDraft({
+   265→      age: p.age?.toString() ?? "",
+   266→      heightCm: p.heightCm?.toString() ?? "",
+   267→      weightKg: p.weightKg?.toString() ?? "",
+   268→    });
+   269→    setFieldErrors({});
+   270→    setEditing(true);
+   271→  }
+   272→
+   273→  function cancelEdit() {
+   274→    setEditing(false);
+   275→    setFieldErrors({});
+   276→  }
+   277→
+   278→  function updateDraft(key: FieldKey, raw: string) {
+   279→    const clean = sanitizeNumeric(raw);
+   280→    setDraft((d) => ({ ...d, [key]: clean }));
+   281→    setFieldErrors((fe) => (fe[key] ? { ...fe, [key]: undefined } : fe));
+   282→  }
+   283→
+   284→  function focusField(key: FieldKey) {
+   285→    const el = fieldRefs.current[key];
+   286→    if (!el) return;
+   287→    el.scrollIntoView({ behavior: "smooth", block: "center" });
+   288→    el.querySelector("input")?.focus({ preventScroll: true });
+   289→  }
+   290→
+   291→  async function saveBasics() {
+   292→    const errors = validateDraft(draft);
+   293→    if (FIELD_ORDER.some((k) => errors[k])) {
+   294→      setFieldErrors(errors);
+   295→      toast({ title: "Please correct the highlighted fields", variant: "destructive" });
+   296→      const first = FIELD_ORDER.find((k) => errors[k]);
+   297→      if (first) focusField(first);
+   298→      return;
+   299→    }
+   300→    setSaving(true);
+   301→    try {
+   302→      const num = (v: string) => (v.trim() === "" ? null : Number(v));
+   303→      const res = await api.updateProfile({
+   304→        age: num(draft.age),
+   305→        heightCm: num(draft.heightCm),
+   306→        weightKg: num(draft.weightKg),
+   307→      });
+   308→      // The PUT response IS the fresh ProfileResponse — never recompute locally.
+   309→      setData(res);
+   310→      setEditing(false);
+   311→      setFieldErrors({});
+   312→      bumpData();
+   313→      toast({ title: "Profile updated", description: "Your daily targets were recomputed from the new numbers." });
+   314→    } catch (e) {
+   315→      toast({
+   316→        title: "Could not save profile",
+   317→        description: e instanceof ApiError ? e.message : "Unexpected error.",
+   318→        variant: "destructive",
+   319→      });
+   320→    } finally {
+   321→      setSaving(false);
+   322→    }
+   323→  }
+   324→
+   325→  // ----- Hero slots -----
+   326→  const goalChip = data && p ? (
+   327→    <Badge variant="outline" className="gap-1.5 rounded-full border-primary/30 bg-primary/10 px-3 py-1 text-primary">
+   328→      <span aria-hidden>🎯</span>
+   329→      {p.goal ? GOAL_LABELS[p.goal] : "No goal set yet"}
+   330→    </Badge>
+   331→  ) : undefined;
+   332→
+   333→  const heroAction = (
+   334→    <Button size="sm" className="gap-1.5 active:scale-[0.98]" onClick={() => setEditorOpen(true)}>
+   335→      <Pencil className="h-3.5 w-3.5" aria-hidden /> Edit full profile
+   336→    </Button>
+   337→  );
+   338→
+   339→  const heroStats = data && t ? (
+   340→    <>
+   341→      <HeroStat
+   342→        icon={<Flame className="h-4 w-4" aria-hidden />}
+   343→        label="Calorie target"
+   344→        value={formatKcal(t.calories)}
+   345→        tone="emerald"
+   346→        title="Daily calorie target — computed server-side"
+   347→      />
+   348→      <HeroStat
+   349→        icon={<Drumstick className="h-4 w-4" aria-hidden />}
+   350→        label="Protein target"
+   351→        value={formatGrams(t.protein)}
+   352→        tone="teal"
+   353→        title="Daily protein target — computed server-side"
+   354→      />
+   355→      <HeroStat
+   356→        icon={<Zap className="h-4 w-4" aria-hidden />}
+   357→        label="TDEE"
+   358→        value={formatKcal(t.tdee)}
+   359→        tone="amber"
+   360→        title="Total daily energy expenditure — computed server-side"
+   361→      />
+   362→    </>
+   363→  ) : null;
+   364→
+   365→  // ----- Basic information rows -----
+   366→  const basicsEditable: { key: FieldKey; label: string; unit: string; icon: React.ReactNode }[] = [
+   367→    { key: "age", label: "Age", unit: "years", icon: <Cake className="h-4 w-4" /> },
+   368→    { key: "heightCm", label: "Height", unit: "cm", icon: <Ruler className="h-4 w-4" /> },
+   369→    { key: "weightKg", label: "Weight", unit: "kg", icon: <Scale className="h-4 w-4" /> },
+   370→  ];
+   371→
+   372→  const basicsStatic: { label: string; icon: React.ReactNode; value: string | null }[] = [
+   373→    { label: "Sex", icon: <UserRound className="h-4 w-4" />, value: p?.sex ? cap(p.sex) : null },
+   374→    {
+   375→      label: "Activity",
+   376→      icon: <Footprints className="h-4 w-4" />,
+   377→      value: p?.activityLevel ? (ACTIVITY_LABELS[p.activityLevel] ?? null) : null,
+   378→    },
+   379→    {
+   380→      label: "Goal",
+   381→      icon: <Trophy className="h-4 w-4" />,
+   382→      value: p?.goal ? (GOAL_LABELS[p.goal] ?? null) : null,
+   383→    },
+   384→  ];
+   385→
+   386→  // ----- Daily targets mini grid -----
+   387→  const targetCells = t
+   388→    ? [
+   389→        {
+   390→          icon: <Activity className="h-3.5 w-3.5" />,
+   391→          label: "BMR",
+   392→          value: formatKcal(t.bmr),
+   393→          tone: "bg-teal-500/10 text-teal-600 dark:text-teal-400",
+   394→        },
+   395→        {
+   396→          icon: <Zap className="h-3.5 w-3.5" />,
+   397→          label: "TDEE",
+   398→          value: formatKcal(t.tdee),
+   399→          tone: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
+   400→        },
+   401→        {
+   402→          icon: <Drumstick className="h-3.5 w-3.5" />,
+   403→          label: "Protein",
+   404→          value: formatGrams(t.protein),
+   405→          tone: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+   406→        },
+   407→        {
+   408→          icon: <Wheat className="h-3.5 w-3.5" />,
+   409→          label: "Carbs",
+   410→          value: formatGrams(t.carbohydrates),
+   411→          tone: "bg-orange-500/10 text-orange-600 dark:text-orange-400",
+   412→        },
+   413→        {
+   414→          icon: <Droplets className="h-3.5 w-3.5" />,
+   415→          label: "Fat",
+   416→          value: formatGrams(t.fat),
+   417→          tone: "bg-rose-500/10 text-rose-600 dark:text-rose-400",
+   418→        },
+   419→        {
+   420→          icon: <Sprout className="h-3.5 w-3.5" />,
+   421→          label: "Fiber",
+   422→          value: formatGrams(t.fiber),
+   423→          tone: "bg-teal-500/10 text-teal-600 dark:text-teal-400",
+   424→        },
+   425→      ]
+   426→    : [];
+   427→
+   428→  return (
+   429→    <div className="space-y-5">
+   430→      <FadeIn>
+   431→        <ViewHero
+   432→          title="Health Profile"
+   433→          subtitle={
+   434→            firstName
+   435→              ? `${firstName}, these are the inputs behind every target and constraint — the AI never invents them.`
+   436→              : "The inputs behind every target and constraint — the AI never invents them."
+   437→          }
+   438→          script="Know Your Numbers"
+   439→          image="/images/dish-dosa.png"
+   440→          chip={goalChip}
+   441→          actions={heroAction}
+   442→          stats={heroStats}
+   443→        />
+   444→      </FadeIn>
+   445→
+   446→      {error && (
+   447→        <FadeIn delay={0.05}>
+   448→          <div
+   449→            role="alert"
+   450→            className="flex flex-col gap-3 rounded-2xl border border-destructive/40 bg-destructive/10 p-4 sm:flex-row sm:items-center sm:justify-between"
+   451→          >
+   452→            <div className="flex items-start gap-3">
+   453→              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-destructive" aria-hidden />
+   454→              <p className="text-sm font-medium text-destructive">{error}</p>
+   455→            </div>
+   456→            <Button
+   457→              variant="outline"
+   458→              size="sm"
+   459→              className="shrink-0 gap-1.5 active:scale-[0.98]"
+   460→              onClick={() => setReloadKey((k) => k + 1)}
+   461→            >
+   462→              <RefreshCw className="h-3.5 w-3.5" aria-hidden /> Retry
+   463→            </Button>
+   464→          </div>
+   465→        </FadeIn>
+   466→      )}
+   467→
+   468→      {!data && !error && (
+   469→        <div role="status" aria-label="Loading your profile" className="space-y-5">
+   470→          <Skeleton className="h-48 w-full rounded-3xl" />
+   471→          <div className="grid gap-5 md:grid-cols-2" aria-hidden>
+   472→            <Skeleton className="h-80 rounded-3xl" />
+   473→            <Skeleton className="h-80 rounded-3xl" />
+   474→            <Skeleton className="h-72 rounded-3xl" />
+   475→            <Skeleton className="h-72 rounded-3xl" />
+   476→          </div>
+   477→        </div>
+   478→      )}
+   479→
+   480→      {data && p && t && (
+   481→        <div className="grid items-start gap-5 md:grid-cols-2">
+   482→          {/* ---------------- Basic Information (inline editing) ---------------- */}
+   483→          <FadeIn delay={0.05}>
+   484→            <Card className="h-full rounded-3xl border-primary/15 shadow-sm">
+   485→              <CardHeader>
+   486→                <h2 className="flex items-center gap-2 text-base font-semibold leading-none">
+   487→                  <span
+   488→                    aria-hidden
+   489→                    className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 text-primary"
+   490→                  >
+   491→                    <UserRound className="h-4 w-4" />
+   492→                  </span>
+   493→                  Basic Information
+   494→                </h2>
+   495→                <p className="text-sm text-muted-foreground">Drives BMR → TDEE → macro targets.</p>
+   496→                <CardAction>
+   497→                  {editing ? (
+   498→                    <div className="flex items-center gap-1.5">
+   499→                      <Button size="sm" variant="ghost" className="gap-1" onClick={cancelEdit} disabled={saving}>
+   500→                        <X className="h-3.5 w-3.5" aria-hidden /> Cancel
+   501→                      </Button>
+   502→                      <Button
+   503→                        size="sm"
+   504→                        className="gap-1 active:scale-[0.98]"
+   505→                        onClick={() => void saveBasics()}
+   506→                        disabled={saving}
+   507→                      >
+   508→                        {saving ? (
+   509→                          <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+   510→                        ) : (
+   511→                          <Check className="h-3.5 w-3.5" aria-hidden />
+   512→                        )}
+   513→                        Save
+   514→                      </Button>
+   515→                    </div>
+   516→                  ) : (
+   517→                    <Button size="sm" variant="outline" className="gap-1.5 active:scale-[0.98]" onClick={startEdit}>
+   518→                      <Pencil className="h-3.5 w-3.5" aria-hidden /> Edit
+   519→                    </Button>
+   520→                  )}
+   521→                </CardAction>
+   522→              </CardHeader>
+   523→              <CardContent>
+   524→                <div>
+   525→                  {basicsEditable.map((row) => (
+   526→                    <BasicRow
+   527→                      key={row.key}
+   528→                      icon={row.icon}
+   529→                      label={row.label}
+   530→                      unit={row.unit}
+   531→                      value={
+   532→                        row.key === "age"
+   533→                          ? p.age != null
+   534→                            ? formatShort(p.age)
+   535→                            : null
+   536→                          : row.key === "heightCm"
+   537→                            ? p.heightCm != null
+   538→                              ? formatShort(p.heightCm)
+   539→                              : null
+   540→                            : p.weightKg != null
+   541→                              ? formatShort(p.weightKg)
+   542→                              : null
+   543→                      }
+   544→                      inputId={editing ? `pfv-${row.key}` : undefined}
+   545→                      editValue={draft[row.key]}
+   546→                      error={fieldErrors[row.key]}
+   547→                      onChange={(v) => updateDraft(row.key, v)}
+   548→                      fieldRef={(el) => {
+   549→                        fieldRefs.current[row.key] = el;
+   550→                      }}
+   551→                      disabled={saving}
+   552→                    />
+   553→                  ))}
+   554→                  {basicsStatic.map((row) => (
+   555→                    <BasicRow key={row.label} icon={row.icon} label={row.label} value={row.value} />
+   556→                  ))}
+   557→                </div>
+   558→                {editing && (
+   559→                  <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">
+   560→                    Validated against the same server ranges the engine uses: age 5–120, height 80–250 cm, weight
+   561→                    15–400 kg. Leave a field empty to clear it.
+   562→                  </p>
+   563→                )}
+   564→              </CardContent>
+   565→            </Card>
+   566→          </FadeIn>
+   567→
+   568→          {/* ---------------- Daily targets ---------------- */}
+   569→          <FadeIn delay={0.1}>
+   570→            <Card className="h-full rounded-3xl border-primary/15 shadow-sm">
+   571→              <CardHeader>
+   572→                <h2 className="flex items-center gap-2 text-base font-semibold leading-none">
+   573→                  <span
+   574→                    aria-hidden
+   575→                    className="flex h-7 w-7 items-center justify-center rounded-lg bg-orange-500/10 text-orange-600 dark:text-orange-400"
+   576→                  >
+   577→                    <Flame className="h-4 w-4" />
+   578→                  </span>
+   579→                  Daily targets
+   580→                </h2>
+   581→                <p className="text-sm text-muted-foreground">Calculated from your basics — never AI-invented.</p>
+   582→              </CardHeader>
+   583→              <CardContent className="space-y-4">
+   584→                <div className="rounded-2xl border border-primary/15 bg-gradient-to-br from-primary/10 via-primary/5 to-amber-500/5 p-4">
+   585→                  <div className="flex items-center gap-3.5">
+   586→                    <span
+   587→                      aria-hidden
+   588→                      className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary/15 text-primary"
+   589→                    >
+   590→                      <Flame className="h-6 w-6" />
+   591→                    </span>
+   592→                    <div className="min-w-0">
+   593→                      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+   594→                        Calorie target
+   595→                      </p>
+   596→                      <p className="text-3xl font-extrabold leading-tight tabular-nums text-emerald-950 dark:text-emerald-50">
+   597→                        {formatKcal(t.calories)}
+   598→                      </p>
+   599→                    </div>
+   600→                    <span className="ml-auto self-start rounded-lg bg-primary/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-primary">
+   601→                      per day
+   602→                    </span>
+   603→                  </div>
+   604→                </div>
+   605→
+   606→                {(p.calorieTargetOverride != null || p.proteinTargetOverride != null) && (
+   607→                  <div className="flex flex-wrap gap-1.5">
+   608→                    {p.calorieTargetOverride != null && (
+   609→                      <Badge
+   610→                        variant="outline"
+   611→                        className="border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+   612→                      >
+   613→                        <span aria-hidden>⚡</span> Custom override · {formatKcal(p.calorieTargetOverride)}
+   614→                      </Badge>
+   615→                    )}
+   616→                    {p.proteinTargetOverride != null && (
+   617→                      <Badge
+   618→                        variant="outline"
+   619→                        className="border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+   620→                      >
+   621→                        <span aria-hidden>⚡</span> Custom override · {formatGrams(p.proteinTargetOverride)}
+   622→                      </Badge>
+   623→                    )}
+   624→                  </div>
+   625→                )}
+   626→
+   627→                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+   628→                  {targetCells.map((c) => (
+   629→                    <div key={c.label} className="rounded-xl bg-muted/50 p-2.5">
+   630→                      <span
+   631→                        aria-hidden
+   632→                        className={cn("flex h-7 w-7 items-center justify-center rounded-lg", c.tone)}
+   633→                      >
+   634→                        {c.icon}
+   635→                      </span>
+   636→                      <p className="mt-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+   637→                        {c.label}
+   638→                      </p>
+   639→                      <p className="text-sm font-bold tabular-nums text-emerald-950 dark:text-emerald-50">{c.value}</p>
+   640→                    </div>
+   641→                  ))}
+   642→                </div>
+   643→
+   644→                <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+   645→                  <Zap className="h-3 w-3 shrink-0" aria-hidden />
+   646→                  Deterministic engine output — recomputed on every profile save.
+   647→                </p>
+   648→              </CardContent>
+   649→            </Card>
+   650→          </FadeIn>
+   651→
+   652→          {/* ---------------- Diet & safety ---------------- */}
+   653→          <FadeIn delay={0.15}>
+   654→            <Card className="h-full rounded-3xl border-primary/15 shadow-sm">
+   655→              <CardHeader>
+   656→                <h2 className="flex items-center gap-2 text-base font-semibold leading-none">
+   657→                  <span
+   658→                    aria-hidden
+   659→                    className="flex h-7 w-7 items-center justify-center rounded-lg bg-rose-500/10 text-rose-600 dark:text-rose-400"
+   660→                  >
+   661→                    <ShieldCheck className="h-4 w-4" />
+   662→                  </span>
+   663→                  Diet &amp; safety
+   664→                </h2>
+   665→                <p className="text-sm text-muted-foreground">Applied before ranking — hard filters, not suggestions.</p>
+   666→              </CardHeader>
+   667→              <CardContent className="space-y-4">
+   668→                <div className="grid gap-4 sm:grid-cols-2">
+   669→                  <div>
+   670→                    <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+   671→                      Dietary preference
+   672→                    </h3>
+   673→                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+   674→                      <span className="rounded-lg border bg-muted/50 px-2 py-1 font-mono text-[11px] font-medium uppercase tracking-wide">
+   675→                        {p.dietaryPreference.replace(/_/g, " ")}
+   676→                      </span>
+   677→                    </div>
+   678→                  </div>
+   679→                  <div>
+   680→                    <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+   681→                      Language
+   682→                    </h3>
+   683→                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+   684→                      <span className="rounded-lg border bg-muted/50 px-2 py-1 font-mono text-[11px] font-medium uppercase tracking-wide">
+   685→                        {languageLabel(p.language ?? profileBrief?.language)}
+   686→                      </span>
+   687→                    </div>
+   688→                  </div>
+   689→                </div>
+   690→
+   691→                <div>
+   692→                  <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+   693→                    Health conditions
+   694→                  </h3>
+   695→                  <div className="mt-1.5 flex flex-wrap gap-1.5">
+   696→                    {p.healthConditions.length > 0 ? (
+   697→                      p.healthConditions.map((c) => (
+   698→                        <span
+   699→                          key={c}
+   700→                          className="rounded-lg border border-rose-500/40 bg-rose-500/10 px-2 py-1 font-mono text-[11px] font-semibold uppercase tracking-wide text-rose-700 dark:text-rose-300"
+   701→                        >
+   702→                          {c}
+   703→                        </span>
+   704→                      ))
+   705→                    ) : (
+   706→                      <p className="text-sm text-muted-foreground">No conditions recorded</p>
+   707→                    )}
+   708→                  </div>
+   709→                </div>
+   710→
+   711→                <div>
+   712→                  <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+   713→                    Hard-excluded allergens
+   714→                  </h3>
+   715→                  <div className="mt-1.5 flex flex-wrap gap-1.5">
+   716→                    {p.allergies.length > 0 ? (
+   717→                      p.allergies.map((a) => (
+   718→                        <span
+   719→                          key={a}
+   720→                          className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-2 py-1 font-mono text-[11px] font-medium text-amber-700 dark:text-amber-300"
+   721→                        >
+   722→                          {cap(a)}
+   723→                        </span>
+   724→                      ))
+   725→                    ) : (
+   726→                      <p className="text-sm text-muted-foreground">No allergies recorded</p>
+   727→                    )}
+   728→                  </div>
+   729→                </div>
+   730→              </CardContent>
+   731→            </Card>
+   732→          </FadeIn>
+   733→
+   734→          {/* ---------------- How your plan is computed ---------------- */}
+   735→          <FadeIn delay={0.2}>
+   736→            <Card className="h-full rounded-3xl border-dashed border-primary/15 bg-muted/30 shadow-sm">
+   737→              <CardHeader>
+   738→                <h2 className="flex items-center gap-2 text-base font-semibold leading-none">
+   739→                  <span
+   740→                    aria-hidden
+   741→                    className="flex h-7 w-7 items-center justify-center rounded-lg bg-muted text-muted-foreground"
+   742→                  >
+   743→                    <Info className="h-4 w-4" />
+   744→                  </span>
+   745→                  How your plan is computed
+   746→                </h2>
+   747→                <p className="text-sm text-muted-foreground">Fixed server pipeline — same inputs, same targets.</p>
+   748→              </CardHeader>
+   749→              <CardContent className="space-y-4">
+   750→                <div className="flex flex-wrap items-center gap-1 text-[11px] font-medium">
+   751→                  {PIPELINE_STEPS.map((step, i) => (
+   752→                    <Fragment key={step}>
+   753→                      <span className="rounded-lg bg-muted/70 px-2 py-1 text-foreground/80">{step}</span>
+   754→                      {i < PIPELINE_STEPS.length - 1 && (
+   755→                        <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
+   756→                      )}
+   757→                    </Fragment>
+   758→                  ))}
+   759→                </div>
+   760→
+   761→                {data.targetNotes.length > 0 && (
+   762→                  <div>
+   763→                    <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+   764→                      Engine notes for your current numbers
+   765→                    </h3>
+   766→                    <ul className="mt-1.5 space-y-1.5">
+   767→                      {data.targetNotes.map((n, i) => (
+   768→                        <li key={i} className="flex gap-2 text-xs leading-relaxed text-muted-foreground">
+   769→                          <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" aria-hidden />
+   770→                          {n}
+   771→                        </li>
+   772→                      ))}
+   773→                    </ul>
+   774→                  </div>
+   775→                )}
+   776→
+   777→                <div className="flex flex-wrap gap-1.5">
+   778→                  {EVIDENCE_SOURCES.map((s) => (
+   779→                    <span
+   780→                      key={s}
+   781→                      className="rounded-md border bg-background px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
+   782→                    >
+   783→                      {s}
+   784→                    </span>
+   785→                  ))}
+   786→                </div>
+   787→
+   788→                <p className="text-[11px] leading-relaxed text-muted-foreground">
+   789→                  Educational estimates only — not medical advice. For medical nutrition therapy, please consult your
+   790→                  clinician or a registered dietitian.
+   791→                </p>
+   792→              </CardContent>
+   793→            </Card>
+   794→          </FadeIn>
+   795→        </div>
+   796→      )}
+   797→
+   798→      <ProfileDialog onSaved={bumpData} open={editorOpen} onOpenChange={setEditorOpen} />
+   799→    </div>
+   800→  );
+   801→}
+   802→

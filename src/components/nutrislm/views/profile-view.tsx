@@ -1,61 +1,71 @@
 "use client";
 
 /**
- * Health Profile view — premium rebuild.
+ * Health Profile view — mockup-exact rebuild (light, emerald).
  *
- * Hero (ViewHero) with goal chip + live target stats, "Basic Information" card
- * with inline editing (server-mirrored validation), a "Daily targets" card with
- * the calorie hero + macro grid, "Diet & safety" condition/allergy chips and a
- * muted "How your plan is computed" explainer. Numbers are ALWAYS
- * server-computed (api.getProfile / api.updateProfile responses) — never
- * invented client-side.
+ * Layout: ViewHero (Health Profile + "Edit Profile" action) → identity card
+ * (avatar, name, stat chips, script quote) → 3-column grid (Basic Information
+ * inline editing with server-mirrored validation · Health Conditions for the
+ * server-supported T2DM/CKD/CVD · Computed Daily Targets) → bottom row
+ * (Dietary Preferences · Language Preference · Medical Notes) → evidence trust
+ * strip. Numbers are ALWAYS server-computed (api.getProfile / api.updateProfile
+ * responses) — never invented client-side.
  */
-import { Fragment, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { LucideIcon } from "lucide-react";
 import {
-  Activity,
   AlertTriangle,
-  ArrowRight,
   Cake,
   Check,
-  Drumstick,
+  Droplet,
   Droplets,
+  Dumbbell,
+  Filter,
   Flame,
-  Footprints,
+  GlassWater,
+  HeartPulse,
   Info,
+  Languages,
+  Leaf,
+  Lightbulb,
   Loader2,
+  Lock,
   Pencil,
   RefreshCw,
   Ruler,
   Scale,
   ShieldCheck,
-  Sprout,
-  Trophy,
+  Stethoscope,
   UserRound,
+  UtensilsCrossed,
   Wheat,
   X,
-  Zap,
 } from "lucide-react";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { api, ApiError } from "@/lib/client/api";
 import { formatGrams, formatKcal, formatShort } from "@/lib/client/format";
-import type { ActivityLevel, Goal, ProfileResponse } from "@/lib/client/types";
-import { useNutriStore, languageLabel } from "../store";
+import type { ActivityLevel, DietaryPreference, Goal, LangCode, ProfileResponse } from "@/lib/client/types";
+import { useNutriStore } from "../store";
 import { ProfileDialog } from "../profile-dialog";
 import { FadeIn } from "../fade-in";
-import { HeroStat, ViewHero } from "./view-hero";
+import { ViewHero } from "./view-hero";
 
 // ---------- Humanized labels (display only — values stay server-side) ----------
 
 const GOAL_LABELS: Record<Goal, string> = {
-  lose_weight: "Lose weight",
-  maintain: "Maintain",
-  gain_muscle: "Gain muscle",
+  lose_weight: "Lose Weight",
+  maintain: "Maintain Weight",
+  gain_muscle: "Gain Muscle",
 };
 
 const ACTIVITY_LABELS: Record<ActivityLevel, string> = {
@@ -66,13 +76,45 @@ const ACTIVITY_LABELS: Record<ActivityLevel, string> = {
   very_active: "Very active",
 };
 
-const EVIDENCE_SOURCES = ["IFCT 2017", "USDA", "WHO", "ICMR-NIN", "ADA", "KDIGO"];
+const DIET_OPTIONS: { value: DietaryPreference; label: string }[] = [
+  { value: "vegetarian", label: "Vegetarian" },
+  { value: "vegan", label: "Vegan" },
+  { value: "eggetarian", label: "Eggetarian" },
+  { value: "non_vegetarian", label: "Non-vegetarian" },
+];
 
-const PIPELINE_STEPS = [
-  "BMR (Mifflin-St Jeor)",
-  "TDEE (× activity)",
-  "Goal adjustment",
-  "Clinical constraints",
+/** App UI languages — exactly the five profile codes. */
+const LANGUAGES: { code: LangCode; native: string; label: string }[] = [
+  { code: "en", native: "English", label: "English" },
+  { code: "ta", native: "தமிழ்", label: "Tamil" },
+  { code: "te", native: "తెలుగు", label: "Telugu" },
+  { code: "hi", native: "हिन्दी", label: "Hindi" },
+  { code: "kn", native: "ಕನ್ನಡ", label: "Kannada" },
+];
+
+/** EXACTLY the server-supported conditions (CONDITIONS in /api/profile) — nothing invented. */
+const CONDITION_OPTIONS: { value: "T2DM" | "CKD" | "CVD"; label: string; desc: string; icon: LucideIcon; tone: string }[] = [
+  {
+    value: "T2DM",
+    label: "Type 2 Diabetes Mellitus (T2DM)",
+    desc: "Blood sugar management and glycemic control",
+    icon: Droplet,
+    tone: "bg-rose-500/10 text-rose-600 dark:text-rose-400",
+  },
+  {
+    value: "CKD",
+    label: "Chronic Kidney Disease (CKD)",
+    desc: "Kidney-friendly diet and sodium/protein control",
+    icon: Filter,
+    tone: "bg-teal-500/10 text-teal-600 dark:text-teal-400",
+  },
+  {
+    value: "CVD",
+    label: "Cardiovascular Disease (CVD)",
+    desc: "Heart-healthy diet (low sodium, low saturated fat)",
+    icon: HeartPulse,
+    tone: "bg-rose-500/10 text-rose-600 dark:text-rose-400",
+  },
 ];
 
 // ---------- Inline-edit validation (MIRRORS the server ranges in /api/profile) ----------
@@ -116,76 +158,95 @@ function validateDraft(draft: Record<FieldKey, string>): Partial<Record<FieldKey
 
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
-// ---------- Pieces ----------
+// ---------- Small shared pieces ----------
 
-/** One basic-information row: icon chip + uppercase label + big value, or an inline input. */
-function BasicRow({
+/** Tinted icon chip used across rows. */
+function Chip({ className, children }: { className?: string; children: React.ReactNode }) {
+  return (
+    <span aria-hidden className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-xl", className)}>
+      {children}
+    </span>
+  );
+}
+
+/** Card header pattern: tinted icon chip + title over a muted description. */
+function CardHeading({ icon, tone, title, desc }: { icon: React.ReactNode; tone: string; title: string; desc: string }) {
+  return (
+    <>
+      <h2 className="flex items-center gap-2 text-base font-semibold leading-none">
+        <span aria-hidden className={cn("flex h-7 w-7 items-center justify-center rounded-lg", tone)}>
+          {icon}
+        </span>
+        {title}
+      </h2>
+      <p className="text-sm text-muted-foreground">{desc}</p>
+    </>
+  );
+}
+
+/** Identity stat chip: icon + tiny label + bold tabular value. */
+function IdentityChip({ icon, label, value, unit }: { icon: React.ReactNode; label: string; value: string; unit?: string }) {
+  return (
+    <div className="flex items-center gap-2.5 rounded-xl border border-primary/10 bg-muted/40 px-3 py-2">
+      <span aria-hidden className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+        {icon}
+      </span>
+      <span className="min-w-0">
+        <span className="block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</span>
+        <span className="block text-sm font-bold tabular-nums text-emerald-950 dark:text-emerald-50">
+          {value}
+          {unit ? <span className="ml-1 text-[10px] font-medium text-muted-foreground">{unit}</span> : null}
+        </span>
+      </span>
+    </div>
+  );
+}
+
+/**
+ * One Basic-Information row: icon chip + label on the left; display value or
+ * an editable control on the right. Optional inline error (role=alert).
+ */
+function InfoRow({
   icon,
-  iconTone,
   label,
-  unit,
+  htmlFor,
   value,
-  inputId,
-  editValue,
+  unit,
+  control,
   error,
-  onChange,
+  errorId,
   fieldRef,
-  disabled,
 }: {
   icon: React.ReactNode;
-  iconTone?: string;
   label: string;
+  htmlFor?: string;
+  /** Display value; null renders "— not set". Ignored when `control` is set. */
+  value?: string | null;
   unit?: string;
-  /** Server value; null renders "— not set". */
-  value: string | null;
-  /** When set, the row renders an editable input instead of the value. */
-  inputId?: string;
-  editValue?: string;
+  /** When set, the row renders this editable control instead of the value. */
+  control?: React.ReactNode;
   error?: string;
-  onChange?: (v: string) => void;
+  errorId?: string;
   fieldRef?: (el: HTMLDivElement | null) => void;
-  disabled?: boolean;
 }) {
   return (
     <div ref={fieldRef} className="scroll-mt-24 border-b border-dashed border-border/60 py-2.5 last:border-b-0">
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
-          <span
-            aria-hidden
-            className={cn(
-              "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl",
-              iconTone ?? "bg-primary/10 text-primary",
-            )}
-          >
-            {icon}
-          </span>
-          <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</span>
+          <Chip className="bg-primary/10 text-primary">{icon}</Chip>
+          {htmlFor ? (
+            <Label htmlFor={htmlFor} className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              {label}
+            </Label>
+          ) : (
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</span>
+          )}
         </div>
-        {inputId ? (
-          <div className="flex flex-col items-end gap-1">
-            <div className="flex items-center gap-1.5">
-              <Input
-                id={inputId}
-                inputMode="decimal"
-                autoComplete="off"
-                value={editValue ?? ""}
-                onChange={(e) => onChange?.(e.target.value)}
-                aria-invalid={error ? true : undefined}
-                aria-describedby={error ? `${inputId}-error` : undefined}
-                disabled={disabled}
-                className="h-10 w-24 text-right text-sm font-semibold tabular-nums"
-              />
-              <span className="w-10 text-xs text-muted-foreground">{unit}</span>
-            </div>
-            {error && (
-              <p id={`${inputId}-error`} role="alert" className="max-w-56 text-right text-xs font-medium text-destructive">
-                {error}
-              </p>
-            )}
-          </div>
+        {control ? (
+          control
         ) : (
           <div className="text-right">
-            {value != null ? (
+            {value != null && value !== "" ? (
               <span className="text-lg font-bold tabular-nums text-emerald-950 dark:text-emerald-50">
                 {value}
                 {unit ? <span className="ml-1 text-xs font-medium text-muted-foreground">{unit}</span> : null}
@@ -198,6 +259,44 @@ function BasicRow({
           </div>
         )}
       </div>
+      {error && (
+        <p id={errorId} role="alert" className="mt-1 text-right text-xs font-medium text-destructive">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** One Computed-Daily-Targets row: icon chip + label + optional badge + tabular value. */
+function TargetRow({
+  icon,
+  tone,
+  label,
+  value,
+  badge,
+}: {
+  icon: React.ReactNode;
+  tone: string;
+  label: string;
+  value: string;
+  badge?: string;
+}) {
+  return (
+    <div className="flex items-center gap-3 border-b border-dashed border-border/60 py-2.5 last:border-b-0">
+      <Chip className={tone}>{icon}</Chip>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm font-medium">{label}</span>
+        {badge && (
+          <Badge
+            variant="outline"
+            className="mt-0.5 w-fit border-amber-500/40 bg-amber-500/10 text-[10px] font-semibold text-amber-700 dark:text-amber-300"
+          >
+            {badge}
+          </Badge>
+        )}
+      </span>
+      <span className="shrink-0 text-sm font-bold tabular-nums text-emerald-950 dark:text-emerald-50">{value}</span>
     </div>
   );
 }
@@ -206,6 +305,7 @@ export function ProfileView() {
   const { toast } = useToast();
   const user = useNutriStore((s) => s.user);
   const profileBrief = useNutriStore((s) => s.profileBrief);
+  const setSession = useNutriStore((s) => s.setSession);
   const dataVersion = useNutriStore((s) => s.dataVersion);
   const bumpData = useNutriStore((s) => s.bumpData);
 
@@ -218,8 +318,19 @@ export function ProfileView() {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [draft, setDraft] = useState<Record<FieldKey, string>>({ age: "", heightCm: "", weightKg: "" });
+  const [draftSex, setDraftSex] = useState("");
+  const [draftActivity, setDraftActivity] = useState("");
+  const [draftGoal, setDraftGoal] = useState("");
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<FieldKey, string>>>({});
   const fieldRefs = useRef<Record<FieldKey, HTMLDivElement | null>>({ age: null, heightCm: null, weightKg: null });
+
+  // Health conditions local draft (saved via its own button).
+  const [condDraft, setCondDraft] = useState<string[]>([]);
+  const [savingCond, setSavingCond] = useState(false);
+
+  // Diet type + language in-flight flags.
+  const [savingDiet, setSavingDiet] = useState(false);
+  const [savingLang, setSavingLang] = useState(false);
 
   // Fetch on mount + whenever dataVersion changes, with ONE silent retry before
   // surfacing the error banner. While the editor dialog is open it refreshes
@@ -257,7 +368,11 @@ export function ProfileView() {
 
   const p = data?.profile;
   const t = data?.computedTargets;
-  const firstName = user?.name.split(" ")[0];
+
+  // Keep the conditions draft in sync with the freshest server profile.
+  useEffect(() => {
+    if (data) setCondDraft(data.profile.healthConditions);
+  }, [data]);
 
   function startEdit() {
     if (!p) return;
@@ -266,6 +381,9 @@ export function ProfileView() {
       heightCm: p.heightCm?.toString() ?? "",
       weightKg: p.weightKg?.toString() ?? "",
     });
+    setDraftSex(p.sex ?? "");
+    setDraftActivity(p.activityLevel ?? "");
+    setDraftGoal(p.goal ?? "");
     setFieldErrors({});
     setEditing(true);
   }
@@ -302,8 +420,11 @@ export function ProfileView() {
       const num = (v: string) => (v.trim() === "" ? null : Number(v));
       const res = await api.updateProfile({
         age: num(draft.age),
+        sex: draftSex || null,
         heightCm: num(draft.heightCm),
         weightKg: num(draft.weightKg),
+        activityLevel: draftActivity || null,
+        goal: draftGoal || null,
       });
       // The PUT response IS the fresh ProfileResponse — never recompute locally.
       setData(res);
@@ -322,124 +443,150 @@ export function ProfileView() {
     }
   }
 
-  // ----- Hero slots -----
-  const goalChip = data && p ? (
-    <Badge variant="outline" className="gap-1.5 rounded-full border-primary/30 bg-primary/10 px-3 py-1 text-primary">
-      <span aria-hidden>🎯</span>
-      {p.goal ? GOAL_LABELS[p.goal] : "No goal set yet"}
-    </Badge>
-  ) : undefined;
+  function toggleCond(value: string) {
+    setCondDraft((d) => (d.includes(value) ? d.filter((v) => v !== value) : [...d, value]));
+  }
 
-  const heroAction = (
-    <Button size="sm" className="gap-1.5 active:scale-[0.98]" onClick={() => setEditorOpen(true)}>
-      <Pencil className="h-3.5 w-3.5" aria-hidden /> Edit full profile
-    </Button>
-  );
+  async function saveConditions() {
+    if (!p) return;
+    const prev = p.healthConditions;
+    setSavingCond(true);
+    try {
+      const res = await api.updateProfile({ healthConditions: condDraft });
+      // The PUT response IS the fresh ProfileResponse — never recompute locally.
+      setData(res);
+      setCondDraft(res.profile.healthConditions);
+      bumpData();
+      toast({ title: "Conditions updated", description: "Disease-aware constraints were re-applied to your targets." });
+    } catch (e) {
+      setCondDraft(prev); // revert to the last saved server state
+      toast({
+        title: "Could not update conditions",
+        description: e instanceof ApiError ? e.message : "Unexpected error.",
+        variant: "destructive",
+      });
+    } finally {
+      setSavingCond(false);
+    }
+  }
 
-  const heroStats = data && t ? (
-    <>
-      <HeroStat
-        icon={<Flame className="h-4 w-4" aria-hidden />}
-        label="Calorie target"
-        value={formatKcal(t.calories)}
-        tone="emerald"
-        title="Daily calorie target — computed server-side"
-      />
-      <HeroStat
-        icon={<Drumstick className="h-4 w-4" aria-hidden />}
-        label="Protein target"
-        value={formatGrams(t.protein)}
-        tone="teal"
-        title="Daily protein target — computed server-side"
-      />
-      <HeroStat
-        icon={<Zap className="h-4 w-4" aria-hidden />}
-        label="TDEE"
-        value={formatKcal(t.tdee)}
-        tone="amber"
-        title="Total daily energy expenditure — computed server-side"
-      />
-    </>
-  ) : null;
+  const conditionsDirty = p
+    ? condDraft.length !== p.healthConditions.length || condDraft.some((c) => !p.healthConditions.includes(c))
+    : false;
 
-  // ----- Basic information rows -----
-  const basicsEditable: { key: FieldKey; label: string; unit: string; icon: React.ReactNode }[] = [
-    { key: "age", label: "Age", unit: "years", icon: <Cake className="h-4 w-4" /> },
-    { key: "heightCm", label: "Height", unit: "cm", icon: <Ruler className="h-4 w-4" /> },
-    { key: "weightKg", label: "Weight", unit: "kg", icon: <Scale className="h-4 w-4" /> },
-  ];
+  async function changeDiet(next: DietaryPreference) {
+    if (!data || !p || savingDiet || next === p.dietaryPreference) return;
+    const prevData = data;
+    // Optimistic local update — reverted on any API failure.
+    setData({ ...data, profile: { ...data.profile, dietaryPreference: next } });
+    setSavingDiet(true);
+    try {
+      const res = await api.updateProfile({ dietaryPreference: next });
+      setData(res);
+      bumpData();
+      toast({
+        title: "Diet preference updated",
+        description: `Recommendations will follow a ${DIET_OPTIONS.find((d) => d.value === next)?.label ?? next} plan.`,
+      });
+    } catch (err) {
+      setData(prevData); // revert
+      toast({
+        title: "Could not update diet preference",
+        description: err instanceof ApiError ? err.message : "Please try again in a moment.",
+        variant: "destructive",
+      });
+    } finally {
+      setSavingDiet(false);
+    }
+  }
 
-  const basicsStatic: { label: string; icon: React.ReactNode; value: string | null }[] = [
-    { label: "Sex", icon: <UserRound className="h-4 w-4" />, value: p?.sex ? cap(p.sex) : null },
-    {
-      label: "Activity",
-      icon: <Footprints className="h-4 w-4" />,
-      value: p?.activityLevel ? (ACTIVITY_LABELS[p.activityLevel] ?? null) : null,
-    },
-    {
-      label: "Goal",
-      icon: <Trophy className="h-4 w-4" />,
-      value: p?.goal ? (GOAL_LABELS[p.goal] ?? null) : null,
-    },
-  ];
+  // Language switching — same optimistic + revert + session-refresh flow as Settings.
+  const currentLang: LangCode = profileBrief?.language ?? data?.profile.language ?? "en";
 
-  // ----- Daily targets mini grid -----
-  const targetCells = t
-    ? [
-        {
-          icon: <Activity className="h-3.5 w-3.5" />,
-          label: "BMR",
-          value: formatKcal(t.bmr),
-          tone: "bg-teal-500/10 text-teal-600 dark:text-teal-400",
-        },
-        {
-          icon: <Zap className="h-3.5 w-3.5" />,
-          label: "TDEE",
-          value: formatKcal(t.tdee),
-          tone: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
-        },
-        {
-          icon: <Drumstick className="h-3.5 w-3.5" />,
-          label: "Protein",
-          value: formatGrams(t.protein),
-          tone: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
-        },
-        {
-          icon: <Wheat className="h-3.5 w-3.5" />,
-          label: "Carbs",
-          value: formatGrams(t.carbohydrates),
-          tone: "bg-orange-500/10 text-orange-600 dark:text-orange-400",
-        },
-        {
-          icon: <Droplets className="h-3.5 w-3.5" />,
-          label: "Fat",
-          value: formatGrams(t.fat),
-          tone: "bg-rose-500/10 text-rose-600 dark:text-rose-400",
-        },
-        {
-          icon: <Sprout className="h-3.5 w-3.5" />,
-          label: "Fiber",
-          value: formatGrams(t.fiber),
-          tone: "bg-teal-500/10 text-teal-600 dark:text-teal-400",
-        },
-      ]
-    : [];
+  async function changeLanguage(next: LangCode) {
+    if (savingLang || next === currentLang) return;
+    const prevBrief = profileBrief;
+    // Optimistic local set — the whole app reads the language from the store.
+    setSession(user, prevBrief ? { ...prevBrief, language: next } : prevBrief);
+    setSavingLang(true);
+    try {
+      await api.updateProfile({ language: next });
+      toast({
+        title: "Language updated",
+        description: `NutriSLM will understand and reply in ${LANGUAGES.find((l) => l.code === next)?.label ?? next}.`,
+      });
+      // Refresh the session from the server so every section sees the saved profile.
+      try {
+        const me = await api.me();
+        setSession(me.user, me.profile);
+      } catch {
+        /* session refresh is best-effort — the language save already succeeded */
+      }
+      bumpData();
+    } catch (err) {
+      // Revert to the previous language on any API failure.
+      setSession(user, prevBrief);
+      toast({
+        title: "Could not update language",
+        description: err instanceof ApiError ? err.message : "Please try again in a moment.",
+        variant: "destructive",
+      });
+    } finally {
+      setSavingLang(false);
+    }
+  }
+
+  // ----- Identity card slots -----
+
+  const initials =
+    user?.name
+      ?.split(" ")
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((w) => w.charAt(0).toUpperCase())
+      .join("") || "DU";
+
+  const subline = profileBrief
+    ? `${DIET_OPTIONS.find((d) => d.value === profileBrief.dietaryPreference)?.label ?? cap(profileBrief.dietaryPreference)} · ${
+        profileBrief.healthConditions.length > 0
+          ? `${profileBrief.healthConditions.length} condition${profileBrief.healthConditions.length === 1 ? "" : "s"}`
+          : "no conditions"
+      }`
+    : (user?.email ?? "Add your details to personalize your targets");
+
+  // ----- Condition-derived badges for the targets card -----
+
+  const conds = p?.healthConditions ?? [];
+  const calorieAdjusted = conds.filter((c) => c === "T2DM" || c === "CKD");
+  const hasCkd = conds.includes("CKD");
 
   return (
     <div className="space-y-5">
       <FadeIn>
         <ViewHero
-          title="Health Profile"
-          subtitle={
-            firstName
-              ? `${firstName}, these are the inputs behind every target and constraint — the AI never invents them.`
-              : "The inputs behind every target and constraint — the AI never invents them."
+          title={
+            <>
+              Health <span className="text-primary">Profile</span>
+            </>
           }
-          script="Know Your Numbers"
-          image="/images/dish-dosa.png"
-          chip={goalChip}
-          actions={heroAction}
-          stats={heroStats}
+          subtitle="Your health details help NutriSLM create safe, personalized and disease-aware nutrition recommendations."
+          script={
+            <>
+              Your Health
+              <br />
+              Our Priority ♡
+            </>
+          }
+          image="/images/hero-leaves.png"
+          actions={
+            <Button
+              size="sm"
+              className="h-10 gap-1.5 rounded-xl px-4 font-semibold active:scale-[0.98]"
+              onClick={() => setEditorOpen(true)}
+            >
+              <Pencil className="h-4 w-4" aria-hidden /> Edit Profile
+            </Button>
+          }
         />
       </FadeIn>
 
@@ -467,332 +614,639 @@ export function ProfileView() {
 
       {!data && !error && (
         <div role="status" aria-label="Loading your profile" className="space-y-5">
-          <Skeleton className="h-48 w-full rounded-3xl" />
-          <div className="grid gap-5 md:grid-cols-2" aria-hidden>
+          <Skeleton className="h-44 w-full rounded-3xl" />
+          <div className="grid gap-5 xl:grid-cols-3" aria-hidden>
             <Skeleton className="h-80 rounded-3xl" />
             <Skeleton className="h-80 rounded-3xl" />
-            <Skeleton className="h-72 rounded-3xl" />
-            <Skeleton className="h-72 rounded-3xl" />
+            <Skeleton className="h-80 rounded-3xl" />
+          </div>
+          <div className="grid gap-5 xl:grid-cols-3" aria-hidden>
+            <Skeleton className="h-64 rounded-3xl" />
+            <Skeleton className="h-64 rounded-3xl" />
+            <Skeleton className="h-64 rounded-3xl" />
           </div>
         </div>
       )}
 
       {data && p && t && (
-        <div className="grid items-start gap-5 md:grid-cols-2">
-          {/* ---------------- Basic Information (inline editing) ---------------- */}
+        <>
+          {/* ---------------- Identity card ---------------- */}
           <FadeIn delay={0.05}>
-            <Card className="h-full rounded-3xl border-primary/15 shadow-sm">
-              <CardHeader>
-                <h2 className="flex items-center gap-2 text-base font-semibold leading-none">
-                  <span
-                    aria-hidden
-                    className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 text-primary"
-                  >
-                    <UserRound className="h-4 w-4" />
-                  </span>
-                  Basic Information
-                </h2>
-                <p className="text-sm text-muted-foreground">Drives BMR → TDEE → macro targets.</p>
-                <CardAction>
-                  {editing ? (
-                    <div className="flex items-center gap-1.5">
-                      <Button size="sm" variant="ghost" className="gap-1" onClick={cancelEdit} disabled={saving}>
-                        <X className="h-3.5 w-3.5" aria-hidden /> Cancel
-                      </Button>
-                      <Button
-                        size="sm"
-                        className="gap-1 active:scale-[0.98]"
-                        onClick={() => void saveBasics()}
-                        disabled={saving}
-                      >
-                        {saving ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-                        ) : (
-                          <Check className="h-3.5 w-3.5" aria-hidden />
-                        )}
-                        Save
-                      </Button>
-                    </div>
-                  ) : (
-                    <Button size="sm" variant="outline" className="gap-1.5 active:scale-[0.98]" onClick={startEdit}>
-                      <Pencil className="h-3.5 w-3.5" aria-hidden /> Edit
-                    </Button>
-                  )}
-                </CardAction>
-              </CardHeader>
-              <CardContent>
-                <div>
-                  {basicsEditable.map((row) => (
-                    <BasicRow
-                      key={row.key}
-                      icon={row.icon}
-                      label={row.label}
-                      unit={row.unit}
-                      value={
-                        row.key === "age"
-                          ? p.age != null
-                            ? formatShort(p.age)
-                            : null
-                          : row.key === "heightCm"
-                            ? p.heightCm != null
-                              ? formatShort(p.heightCm)
-                              : null
-                            : p.weightKg != null
-                              ? formatShort(p.weightKg)
-                              : null
-                      }
-                      inputId={editing ? `pfv-${row.key}` : undefined}
-                      editValue={draft[row.key]}
-                      error={fieldErrors[row.key]}
-                      onChange={(v) => updateDraft(row.key, v)}
-                      fieldRef={(el) => {
-                        fieldRefs.current[row.key] = el;
-                      }}
-                      disabled={saving}
-                    />
-                  ))}
-                  {basicsStatic.map((row) => (
-                    <BasicRow key={row.label} icon={row.icon} label={row.label} value={row.value} />
-                  ))}
-                </div>
-                {editing && (
-                  <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">
-                    Validated against the same server ranges the engine uses: age 5–120, height 80–250 cm, weight
-                    15–400 kg. Leave a field empty to clear it.
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-          </FadeIn>
-
-          {/* ---------------- Daily targets ---------------- */}
-          <FadeIn delay={0.1}>
-            <Card className="h-full rounded-3xl border-primary/15 shadow-sm">
-              <CardHeader>
-                <h2 className="flex items-center gap-2 text-base font-semibold leading-none">
-                  <span
-                    aria-hidden
-                    className="flex h-7 w-7 items-center justify-center rounded-lg bg-orange-500/10 text-orange-600 dark:text-orange-400"
-                  >
-                    <Flame className="h-4 w-4" />
-                  </span>
-                  Daily targets
-                </h2>
-                <p className="text-sm text-muted-foreground">Calculated from your basics — never AI-invented.</p>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="rounded-2xl border border-primary/15 bg-gradient-to-br from-primary/10 via-primary/5 to-amber-500/5 p-4">
-                  <div className="flex items-center gap-3.5">
-                    <span
-                      aria-hidden
-                      className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary/15 text-primary"
-                    >
-                      <Flame className="h-6 w-6" />
-                    </span>
+            <Card className="rounded-3xl border-primary/15 shadow-sm">
+              <CardContent className="flex flex-col gap-5">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex min-w-0 items-center gap-4">
+                    <Avatar className="h-16 w-16 border border-primary/20">
+                      <AvatarFallback className="bg-primary/15 text-lg font-bold text-primary">{initials}</AvatarFallback>
+                    </Avatar>
                     <div className="min-w-0">
-                      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        Calorie target
-                      </p>
-                      <p className="text-3xl font-extrabold leading-tight tabular-nums text-emerald-950 dark:text-emerald-50">
-                        {formatKcal(t.calories)}
-                      </p>
+                      <div className="flex items-center gap-1.5">
+                        <h2 className="truncate text-xl font-bold text-emerald-950 dark:text-emerald-50">
+                          {user?.name ?? "Your profile"}
+                        </h2>
+                        <button
+                          type="button"
+                          onClick={() => setEditorOpen(true)}
+                          aria-label="Edit profile details"
+                          title="Edit profile details"
+                          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        >
+                          <Pencil className="h-3.5 w-3.5" aria-hidden />
+                        </button>
+                      </div>
+                      <p className="mt-0.5 truncate text-sm text-muted-foreground">{subline}</p>
                     </div>
-                    <span className="ml-auto self-start rounded-lg bg-primary/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-primary">
-                      per day
+                  </div>
+                  <p
+                    aria-hidden
+                    className="font-script hidden max-w-[220px] shrink-0 -rotate-2 text-right text-xl font-semibold leading-tight text-muted-foreground lg:block"
+                  >
+                    Better food choices today, a healthier tomorrow.
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <IdentityChip
+                    icon={<Cake className="h-4 w-4" />}
+                    label="Age"
+                    value={p.age != null ? formatShort(p.age) : "—"}
+                    unit={p.age != null ? "years" : undefined}
+                  />
+                  <IdentityChip
+                    icon={<Ruler className="h-4 w-4" />}
+                    label="Height"
+                    value={p.heightCm != null ? formatShort(p.heightCm) : "—"}
+                    unit={p.heightCm != null ? "cm" : undefined}
+                  />
+                  <IdentityChip
+                    icon={<Scale className="h-4 w-4" />}
+                    label="Weight"
+                    value={p.weightKg != null ? formatShort(p.weightKg) : "—"}
+                    unit={p.weightKg != null ? "kg" : undefined}
+                  />
+                  {p.sex && (
+                    <Badge
+                      variant="outline"
+                      className="gap-1.5 rounded-xl border-primary/25 bg-primary/5 px-3 py-2 text-xs font-semibold text-primary"
+                    >
+                      <span aria-hidden>{p.sex === "male" ? "♂" : p.sex === "female" ? "♀" : "·"}</span>
+                      {cap(p.sex)}
+                    </Badge>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </FadeIn>
+
+          {/* ---------------- 3-column grid ---------------- */}
+          <div className="grid items-start gap-5 xl:grid-cols-3">
+            {/* Basic Information (inline editing) */}
+            <FadeIn delay={0.1}>
+              <Card className="h-full rounded-3xl border-primary/15 shadow-sm">
+                <CardHeader>
+                  <CardHeading
+                    icon={<UserRound className="h-4 w-4" />}
+                    tone="bg-primary/10 text-primary"
+                    title="Basic Information"
+                    desc="Drives BMR → TDEE → macro targets."
+                  />
+                  {!editing && (
+                    <CardAction>
+                      <Button size="sm" variant="outline" className="gap-1.5 rounded-xl active:scale-[0.98]" onClick={startEdit}>
+                        <Pencil className="h-3.5 w-3.5" aria-hidden /> Edit
+                      </Button>
+                    </CardAction>
+                  )}
+                </CardHeader>
+                <CardContent>
+                  <div>
+                    <InfoRow
+                      icon={<Cake className="h-4 w-4" />}
+                      label="Age"
+                      htmlFor={editing ? "pfv-age" : undefined}
+                      value={p.age != null ? formatShort(p.age) : null}
+                      unit="years"
+                      fieldRef={(el) => {
+                        fieldRefs.current.age = el;
+                      }}
+                      control={
+                        editing ? (
+                          <div className="flex items-center gap-1.5">
+                            <Input
+                              id="pfv-age"
+                              inputMode="decimal"
+                              autoComplete="off"
+                              value={draft.age}
+                              onChange={(e) => updateDraft("age", e.target.value)}
+                              aria-invalid={fieldErrors.age ? true : undefined}
+                              aria-describedby={fieldErrors.age ? "pfv-age-error" : undefined}
+                              disabled={saving}
+                              className="h-10 w-24 text-right text-sm font-semibold tabular-nums"
+                            />
+                            <span className="w-10 text-xs text-muted-foreground">years</span>
+                          </div>
+                        ) : undefined
+                      }
+                      error={editing ? fieldErrors.age : undefined}
+                      errorId="pfv-age-error"
+                    />
+                    <InfoRow
+                      icon={<UserRound className="h-4 w-4" />}
+                      label="Sex"
+                      htmlFor={editing ? "pfv-sex" : undefined}
+                      value={p.sex ? cap(p.sex) : null}
+                      control={
+                        editing ? (
+                          <Select value={draftSex || undefined} onValueChange={(v) => setDraftSex(v)} disabled={saving}>
+                            <SelectTrigger id="pfv-sex" aria-label="Sex" className="h-10 w-40 rounded-xl">
+                              <SelectValue placeholder="Select sex" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="male">Male</SelectItem>
+                              <SelectItem value="female">Female</SelectItem>
+                              <SelectItem value="other">Other</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        ) : undefined
+                      }
+                    />
+                    <InfoRow
+                      icon={<Ruler className="h-4 w-4" />}
+                      label="Height"
+                      htmlFor={editing ? "pfv-heightCm" : undefined}
+                      value={p.heightCm != null ? formatShort(p.heightCm) : null}
+                      unit="cm"
+                      fieldRef={(el) => {
+                        fieldRefs.current.heightCm = el;
+                      }}
+                      control={
+                        editing ? (
+                          <div className="flex items-center gap-1.5">
+                            <Input
+                              id="pfv-heightCm"
+                              inputMode="decimal"
+                              autoComplete="off"
+                              value={draft.heightCm}
+                              onChange={(e) => updateDraft("heightCm", e.target.value)}
+                              aria-invalid={fieldErrors.heightCm ? true : undefined}
+                              aria-describedby={fieldErrors.heightCm ? "pfv-heightCm-error" : undefined}
+                              disabled={saving}
+                              className="h-10 w-24 text-right text-sm font-semibold tabular-nums"
+                            />
+                            <span className="w-10 text-xs text-muted-foreground">cm</span>
+                          </div>
+                        ) : undefined
+                      }
+                      error={editing ? fieldErrors.heightCm : undefined}
+                      errorId="pfv-heightCm-error"
+                    />
+                    <InfoRow
+                      icon={<Scale className="h-4 w-4" />}
+                      label="Weight"
+                      htmlFor={editing ? "pfv-weightKg" : undefined}
+                      value={p.weightKg != null ? formatShort(p.weightKg) : null}
+                      unit="kg"
+                      fieldRef={(el) => {
+                        fieldRefs.current.weightKg = el;
+                      }}
+                      control={
+                        editing ? (
+                          <div className="flex items-center gap-1.5">
+                            <Input
+                              id="pfv-weightKg"
+                              inputMode="decimal"
+                              autoComplete="off"
+                              value={draft.weightKg}
+                              onChange={(e) => updateDraft("weightKg", e.target.value)}
+                              aria-invalid={fieldErrors.weightKg ? true : undefined}
+                              aria-describedby={fieldErrors.weightKg ? "pfv-weightKg-error" : undefined}
+                              disabled={saving}
+                              className="h-10 w-24 text-right text-sm font-semibold tabular-nums"
+                            />
+                            <span className="w-10 text-xs text-muted-foreground">kg</span>
+                          </div>
+                        ) : undefined
+                      }
+                      error={editing ? fieldErrors.weightKg : undefined}
+                      errorId="pfv-weightKg-error"
+                    />
+                    <InfoRow
+                      icon={<Flame className="h-4 w-4" />}
+                      label="Activity level"
+                      htmlFor={editing ? "pfv-activity" : undefined}
+                      value={p.activityLevel ? (ACTIVITY_LABELS[p.activityLevel] ?? null) : null}
+                      control={
+                        editing ? (
+                          <Select
+                            value={draftActivity || undefined}
+                            onValueChange={(v) => setDraftActivity(v)}
+                            disabled={saving}
+                          >
+                            <SelectTrigger id="pfv-activity" aria-label="Activity level" className="h-10 w-40 rounded-xl">
+                              <SelectValue placeholder="Select activity" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {(Object.keys(ACTIVITY_LABELS) as ActivityLevel[]).map((k) => (
+                                <SelectItem key={k} value={k}>
+                                  {ACTIVITY_LABELS[k]}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : undefined
+                      }
+                    />
+                    <InfoRow
+                      icon={<HeartPulse className="h-4 w-4" />}
+                      label="Goal"
+                      htmlFor={editing ? "pfv-goal" : undefined}
+                      value={p.goal ? (GOAL_LABELS[p.goal] ?? null) : null}
+                      control={
+                        editing ? (
+                          <Select value={draftGoal || undefined} onValueChange={(v) => setDraftGoal(v)} disabled={saving}>
+                            <SelectTrigger id="pfv-goal" aria-label="Goal" className="h-10 w-40 rounded-xl">
+                              <SelectValue placeholder="Select goal" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {(Object.keys(GOAL_LABELS) as Goal[]).map((k) => (
+                                <SelectItem key={k} value={k}>
+                                  {GOAL_LABELS[k]}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : undefined
+                      }
+                    />
+                  </div>
+                  {editing && (
+                    <div className="mt-4 flex flex-col gap-3 border-t border-primary/10 pt-4 sm:flex-row sm:items-center sm:justify-between">
+                      <p className="text-[11px] leading-relaxed text-muted-foreground">
+                        Validated against the same server ranges the engine uses: age 5–120, height 80–250 cm, weight
+                        15–400 kg. Leave a field empty to clear it.
+                      </p>
+                      <div className="flex shrink-0 gap-2">
+                        <Button size="sm" variant="ghost" className="gap-1" onClick={cancelEdit} disabled={saving}>
+                          <X className="h-3.5 w-3.5" aria-hidden /> Cancel
+                        </Button>
+                        <Button
+                          size="sm"
+                          className="gap-1 active:scale-[0.98]"
+                          onClick={() => void saveBasics()}
+                          disabled={saving}
+                        >
+                          {saving ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                          ) : (
+                            <Check className="h-3.5 w-3.5" aria-hidden />
+                          )}
+                          Save
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </FadeIn>
+
+            {/* Health Conditions */}
+            <FadeIn delay={0.15}>
+              <Card className="h-full rounded-3xl border-primary/15 shadow-sm">
+                <CardHeader>
+                  <CardHeading
+                    icon={<HeartPulse className="h-4 w-4" />}
+                    tone="bg-rose-500/10 text-rose-600 dark:text-rose-400"
+                    title="Health Conditions"
+                    desc="Select all that apply. This helps us provide safe and personalized nutrition recommendations."
+                  />
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div role="group" aria-label="Health conditions" className="space-y-2.5">
+                    {CONDITION_OPTIONS.map((c) => {
+                      const checked = condDraft.includes(c.value);
+                      return (
+                        <label
+                          key={c.value}
+                          htmlFor={`pfv-cond-${c.value}`}
+                          className={cn(
+                            "flex cursor-pointer items-start gap-3 rounded-2xl border p-3 transition-colors",
+                            checked ? "border-primary/30 bg-primary/5" : "hover:bg-muted/40",
+                          )}
+                        >
+                          <Checkbox
+                            id={`pfv-cond-${c.value}`}
+                            checked={checked}
+                            onCheckedChange={() => toggleCond(c.value)}
+                            disabled={savingCond}
+                            className="mt-0.5"
+                            aria-label={c.label}
+                          />
+                          <Chip className={c.tone}>
+                            <c.icon className="h-4 w-4" />
+                          </Chip>
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-sm font-bold leading-tight text-emerald-950 dark:text-emerald-50">
+                              {c.label}
+                            </span>
+                            <span className="mt-0.5 block text-xs leading-snug text-muted-foreground">{c.desc}</span>
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                  <Button
+                    className="w-full gap-1.5 rounded-xl active:scale-[0.99]"
+                    onClick={() => void saveConditions()}
+                    disabled={savingCond || !conditionsDirty}
+                  >
+                    {savingCond ? (
+                      <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                    ) : (
+                      <Check className="h-4 w-4" aria-hidden />
+                    )}
+                    Save conditions
+                  </Button>
+                  <p className="text-[11px] leading-relaxed text-muted-foreground">
+                    More conditions (hypertension, thyroid) arrive with the next engine update.
+                  </p>
+                </CardContent>
+              </Card>
+            </FadeIn>
+
+            {/* Computed Daily Targets */}
+            <FadeIn delay={0.2}>
+              <Card className="h-full rounded-3xl border-primary/15 shadow-sm">
+                <CardHeader>
+                  <CardHeading
+                    icon={<Flame className="h-4 w-4" />}
+                    tone="bg-orange-500/10 text-orange-600 dark:text-orange-400"
+                    title="Computed Daily Targets"
+                    desc="Customized for your profile and health conditions."
+                  />
+                  <CardAction>
+                    <span
+                      title="Computed deterministically on the server from your profile — never AI-invented."
+                      className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground/70"
+                    >
+                      <Info className="h-4 w-4" aria-hidden />
                     </span>
-                  </div>
-                </div>
-
-                {(p.calorieTargetOverride != null || p.proteinTargetOverride != null) && (
-                  <div className="flex flex-wrap gap-1.5">
-                    {p.calorieTargetOverride != null && (
-                      <Badge
-                        variant="outline"
-                        className="border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300"
-                      >
-                        <span aria-hidden>⚡</span> Custom override · {formatKcal(p.calorieTargetOverride)}
-                      </Badge>
-                    )}
-                    {p.proteinTargetOverride != null && (
-                      <Badge
-                        variant="outline"
-                        className="border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300"
-                      >
-                        <span aria-hidden>⚡</span> Custom override · {formatGrams(p.proteinTargetOverride)}
-                      </Badge>
-                    )}
-                  </div>
-                )}
-
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                  {targetCells.map((c) => (
-                    <div key={c.label} className="rounded-xl bg-muted/50 p-2.5">
-                      <span
-                        aria-hidden
-                        className={cn("flex h-7 w-7 items-center justify-center rounded-lg", c.tone)}
-                      >
-                        {c.icon}
-                      </span>
-                      <p className="mt-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        {c.label}
-                      </p>
-                      <p className="text-sm font-bold tabular-nums text-emerald-950 dark:text-emerald-50">{c.value}</p>
-                    </div>
-                  ))}
-                </div>
-
-                <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                  <Zap className="h-3 w-3 shrink-0" aria-hidden />
-                  Deterministic engine output — recomputed on every profile save.
-                </p>
-              </CardContent>
-            </Card>
-          </FadeIn>
-
-          {/* ---------------- Diet & safety ---------------- */}
-          <FadeIn delay={0.15}>
-            <Card className="h-full rounded-3xl border-primary/15 shadow-sm">
-              <CardHeader>
-                <h2 className="flex items-center gap-2 text-base font-semibold leading-none">
-                  <span
-                    aria-hidden
-                    className="flex h-7 w-7 items-center justify-center rounded-lg bg-rose-500/10 text-rose-600 dark:text-rose-400"
-                  >
-                    <ShieldCheck className="h-4 w-4" />
-                  </span>
-                  Diet &amp; safety
-                </h2>
-                <p className="text-sm text-muted-foreground">Applied before ranking — hard filters, not suggestions.</p>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid gap-4 sm:grid-cols-2">
+                  </CardAction>
+                </CardHeader>
+                <CardContent className="space-y-3">
                   <div>
-                    <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                      Dietary preference
-                    </h3>
-                    <div className="mt-1.5 flex flex-wrap gap-1.5">
-                      <span className="rounded-lg border bg-muted/50 px-2 py-1 font-mono text-[11px] font-medium uppercase tracking-wide">
-                        {p.dietaryPreference.replace(/_/g, " ")}
-                      </span>
-                    </div>
+                    <TargetRow
+                      icon={<Flame className="h-4 w-4" />}
+                      tone="bg-orange-500/10 text-orange-600 dark:text-orange-400"
+                      label="Calories"
+                      value={formatKcal(t.calories)}
+                      badge={
+                        p.calorieTargetOverride != null
+                          ? `Custom override · ${formatKcal(p.calorieTargetOverride)}`
+                          : calorieAdjusted.length > 0
+                            ? `Adjusted (for ${calorieAdjusted.join(", ")})`
+                            : undefined
+                      }
+                    />
+                    <TargetRow
+                      icon={<Dumbbell className="h-4 w-4" />}
+                      tone="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                      label="Protein"
+                      value={formatGrams(t.protein)}
+                      badge={
+                        p.proteinTargetOverride != null ? `Custom override · ${formatGrams(p.proteinTargetOverride)}` : undefined
+                      }
+                    />
+                    <TargetRow
+                      icon={<Wheat className="h-4 w-4" />}
+                      tone="bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                      label="Carbohydrates"
+                      value={formatGrams(t.carbohydrates)}
+                    />
+                    <TargetRow
+                      icon={<Droplet className="h-4 w-4" />}
+                      tone="bg-rose-500/10 text-rose-600 dark:text-rose-400"
+                      label="Fat"
+                      value={formatGrams(t.fat)}
+                    />
+                    <TargetRow
+                      icon={<Leaf className="h-4 w-4" />}
+                      tone="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                      label="Fiber"
+                      value={formatGrams(t.fiber)}
+                    />
+                    <TargetRow
+                      icon={<Droplets className="h-4 w-4" />}
+                      tone="bg-teal-500/10 text-teal-600 dark:text-teal-400"
+                      label="Sodium limit"
+                      value={`${formatShort(t.sodium)} mg`}
+                      badge={hasCkd ? "Reduced (for CKD, BP)" : undefined}
+                    />
+                    <p className="flex items-center gap-3 border-b border-dashed border-border/60 py-2.5 text-xs text-muted-foreground last:border-b-0">
+                      <Chip className="bg-teal-500/10 text-teal-600 dark:text-teal-400">
+                        <GlassWater className="h-4 w-4" />
+                      </Chip>
+                      Water guidance follows ICMR-NIN: ~2.5 L/day
+                    </p>
+                  </div>
+                  <div className="rounded-xl bg-primary/5 p-3">
+                    <p className="flex items-start gap-1.5 text-xs leading-relaxed text-muted-foreground">
+                      <Lightbulb className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" aria-hidden />
+                      These targets are deterministically computed based on ICMR, ADA, KDIGO and AHA guidelines.
+                    </p>
+                    {data.targetNotes.length > 0 && (
+                      <ul className="mt-2 space-y-1.5">
+                        {data.targetNotes.map((n, i) => (
+                          <li key={i} className="flex gap-2 text-xs leading-relaxed text-muted-foreground">
+                            <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary/60" aria-hidden />
+                            {n}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            </FadeIn>
+          </div>
+
+          {/* ---------------- Bottom row ---------------- */}
+          <div className="grid items-start gap-5 xl:grid-cols-3">
+            {/* Dietary Preferences */}
+            <FadeIn delay={0.25}>
+              <Card className="h-full rounded-3xl border-primary/15 shadow-sm">
+                <CardHeader>
+                  <CardHeading
+                    icon={<UtensilsCrossed className="h-4 w-4" />}
+                    tone="bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                    title="Dietary Preferences"
+                    desc="Hard filters applied before ranking — never suggestions."
+                  />
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="pfv-diet">Diet type</Label>
+                    <Select
+                      value={p.dietaryPreference}
+                      onValueChange={(v) => void changeDiet(v as DietaryPreference)}
+                      disabled={savingDiet}
+                    >
+                      <SelectTrigger id="pfv-diet" aria-label="Diet type" className="h-11 w-full rounded-xl">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {DIET_OPTIONS.map((d) => (
+                          <SelectItem key={d.value} value={d.value}>
+                            {d.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div>
-                    <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                      Language
-                    </h3>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      Allergies — hard exclusions
+                    </p>
                     <div className="mt-1.5 flex flex-wrap gap-1.5">
-                      <span className="rounded-lg border bg-muted/50 px-2 py-1 font-mono text-[11px] font-medium uppercase tracking-wide">
-                        {languageLabel(p.language ?? profileBrief?.language)}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <div>
-                  <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    Health conditions
-                  </h3>
-                  <div className="mt-1.5 flex flex-wrap gap-1.5">
-                    {p.healthConditions.length > 0 ? (
-                      p.healthConditions.map((c) => (
-                        <span
-                          key={c}
-                          className="rounded-lg border border-rose-500/40 bg-rose-500/10 px-2 py-1 font-mono text-[11px] font-semibold uppercase tracking-wide text-rose-700 dark:text-rose-300"
-                        >
-                          {c}
-                        </span>
-                      ))
-                    ) : (
-                      <p className="text-sm text-muted-foreground">No conditions recorded</p>
-                    )}
-                  </div>
-                </div>
-
-                <div>
-                  <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    Hard-excluded allergens
-                  </h3>
-                  <div className="mt-1.5 flex flex-wrap gap-1.5">
-                    {p.allergies.length > 0 ? (
-                      p.allergies.map((a) => (
-                        <span
-                          key={a}
-                          className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-2 py-1 font-mono text-[11px] font-medium text-amber-700 dark:text-amber-300"
-                        >
-                          {cap(a)}
-                        </span>
-                      ))
-                    ) : (
-                      <p className="text-sm text-muted-foreground">No allergies recorded</p>
-                    )}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </FadeIn>
-
-          {/* ---------------- How your plan is computed ---------------- */}
-          <FadeIn delay={0.2}>
-            <Card className="h-full rounded-3xl border-dashed border-primary/15 bg-muted/30 shadow-sm">
-              <CardHeader>
-                <h2 className="flex items-center gap-2 text-base font-semibold leading-none">
-                  <span
-                    aria-hidden
-                    className="flex h-7 w-7 items-center justify-center rounded-lg bg-muted text-muted-foreground"
-                  >
-                    <Info className="h-4 w-4" />
-                  </span>
-                  How your plan is computed
-                </h2>
-                <p className="text-sm text-muted-foreground">Fixed server pipeline — same inputs, same targets.</p>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex flex-wrap items-center gap-1 text-[11px] font-medium">
-                  {PIPELINE_STEPS.map((step, i) => (
-                    <Fragment key={step}>
-                      <span className="rounded-lg bg-muted/70 px-2 py-1 text-foreground/80">{step}</span>
-                      {i < PIPELINE_STEPS.length - 1 && (
-                        <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
+                      {p.allergies.length > 0 ? (
+                        p.allergies.map((a) => (
+                          <span
+                            key={a}
+                            className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-[11px] font-medium text-amber-700 dark:text-amber-300"
+                          >
+                            {cap(a)}
+                          </span>
+                        ))
+                      ) : (
+                        <p className="text-sm text-muted-foreground">No allergens configured.</p>
                       )}
-                    </Fragment>
-                  ))}
-                </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setEditorOpen(true)}
+                      className="mt-2 inline-flex items-center gap-1 rounded text-xs font-medium text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      <Pencil className="h-3 w-3" aria-hidden /> Edit allergens in the full profile dialog
+                    </button>
+                  </div>
+                </CardContent>
+              </Card>
+            </FadeIn>
 
-                {data.targetNotes.length > 0 && (
-                  <div>
-                    <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                      Engine notes for your current numbers
-                    </h3>
-                    <ul className="mt-1.5 space-y-1.5">
+            {/* Language Preference */}
+            <FadeIn delay={0.3}>
+              <Card className="h-full rounded-3xl border-primary/15 shadow-sm">
+                <CardHeader>
+                  <CardHeading
+                    icon={<Languages className="h-4 w-4" />}
+                    tone="bg-teal-500/10 text-teal-600 dark:text-teal-400"
+                    title="Language Preference"
+                    desc="Get recommendations in your preferred language."
+                  />
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <Select
+                    value={currentLang}
+                    onValueChange={(v) => void changeLanguage(v as LangCode)}
+                    disabled={savingLang}
+                  >
+                    <SelectTrigger aria-label="Preferred language" className="h-11 w-full rounded-xl">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {LANGUAGES.map((l) => (
+                        <SelectItem key={l.code} value={l.code}>
+                          {l.native} · {l.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <label
+                    htmlFor="pfv-regional"
+                    className="flex cursor-pointer items-start gap-2.5 rounded-xl border border-primary/10 bg-muted/30 p-3"
+                  >
+                    <Checkbox
+                      id="pfv-regional"
+                      className="mt-0.5"
+                      checked={currentLang !== "en"}
+                      onCheckedChange={(c) => void changeLanguage(c === true ? "ta" : "en")}
+                      disabled={savingLang}
+                      aria-label="Enable regional language support"
+                    />
+                    <span className="text-sm leading-snug">
+                      Enable regional language support (Tamil, Telugu, Hindi, Kannada)
+                    </span>
+                  </label>
+                  {savingLang && (
+                    <p className="flex items-center gap-1.5 text-xs text-primary" role="status">
+                      <Loader2 className="h-3 w-3 animate-spin" aria-hidden /> Saving…
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+            </FadeIn>
+
+            {/* Medical Notes */}
+            <FadeIn delay={0.35}>
+              <Card className="h-full rounded-3xl border-primary/15 shadow-sm">
+                <CardHeader>
+                  <CardHeading
+                    icon={<Stethoscope className="h-4 w-4" />}
+                    tone="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                    title="Medical Notes"
+                    desc="Engine guidance recorded for your current profile."
+                  />
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {data.targetNotes.length > 0 ? (
+                    <ul className="space-y-1.5">
                       {data.targetNotes.map((n, i) => (
                         <li key={i} className="flex gap-2 text-xs leading-relaxed text-muted-foreground">
-                          <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" aria-hidden />
+                          <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary/60" aria-hidden />
                           {n}
                         </li>
                       ))}
                     </ul>
-                  </div>
-                )}
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      No engine notes yet — save your basics or conditions to generate personalized guidance.
+                    </p>
+                  )}
+                  <p className="flex items-center gap-1.5 border-t border-primary/10 pt-3 text-xs text-muted-foreground">
+                    <Lock className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden /> Your health data is private and
+                    secure.
+                  </p>
+                </CardContent>
+              </Card>
+            </FadeIn>
+          </div>
 
-                <div className="flex flex-wrap gap-1.5">
-                  {EVIDENCE_SOURCES.map((s) => (
-                    <span
-                      key={s}
-                      className="rounded-md border bg-background px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
-                    >
-                      {s}
-                    </span>
-                  ))}
+          {/* ---------------- Trust strip ---------------- */}
+          <FadeIn delay={0.4}>
+            <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-primary/10 to-teal-500/5 p-5">
+              <img
+                src="/images/hero-leaves.png"
+                alt=""
+                aria-hidden
+                className="pointer-events-none absolute inset-y-0 right-0 hidden h-full w-44 object-cover opacity-25 [mask-image:linear-gradient(to_left,black_45%,transparent_100%)] md:block"
+              />
+              <div className="relative flex items-center gap-4">
+                <span
+                  aria-hidden
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary"
+                >
+                  <ShieldCheck className="h-5 w-5" />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-sm font-bold text-emerald-950 dark:text-emerald-50 sm:text-base">
+                    Personalized. Safe. Evidence-Based.
+                  </p>
+                  <p className="mt-0.5 text-xs text-muted-foreground sm:text-[13px]">
+                    Your profile powers disease-aware meal plans using trusted guidelines (ICMR • ADA • KDIGO • AHA).
+                  </p>
                 </div>
-
-                <p className="text-[11px] leading-relaxed text-muted-foreground">
-                  Educational estimates only — not medical advice. For medical nutrition therapy, please consult your
-                  clinician or a registered dietitian.
-                </p>
-              </CardContent>
-            </Card>
+              </div>
+            </div>
           </FadeIn>
-        </div>
+        </>
       )}
 
       <ProfileDialog onSaved={bumpData} open={editorOpen} onOpenChange={setEditorOpen} />

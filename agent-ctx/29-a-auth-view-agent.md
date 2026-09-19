@@ -1,0 +1,37 @@
+# Task 29-a — auth-view.tsx mockup rebuild (work record)
+
+**Agent:** Z.ai Code (subagent 29-a, login screen)
+**Ownership:** ONLY `/home/z/my-project/src/components/nutrislm/auth-view.tsx` (full rewrite; no other project file touched; tsc/eslint/dev-server-restart intentionally not run per task rules). Browser verification via agent-browser was performed (read-only + cookie clearing; no file/server changes).
+
+## Read first (all verified)
+- worklog.md Task 28 tail (project state, design language, ownership rules).
+- auth-view.tsx (old): DEMO const, `submit(kind)` (api.login / api.login(DEMO) / api.register → api.me → setSession → toast; ApiError → error state), busy `"login"|"register"|"demo"|null`, role=alert error box in both tabs.
+- store.ts: `setSession(user, profileBrief)` only store API used.
+- api.ts: login/register/me signatures. use-toast: `{title, description}`.
+- ui/: button (default variant `bg-primary hover:bg-primary/90`, tw-merge overrides work via later className), card (`rounded-xl py-6 gap-6` defaults overridden by `rounded-3xl p-8`), input, label, tabs (TabsTrigger base has `data-[state=active]:bg-background dark:data-[state=active]:bg-input/30 dark:...text-foreground shadow-sm` → must override ALL variants incl. dark: to get the segmented look).
+- app.tsx + app-shell.tsx: AuthView renders inside `BareShell` (header w/ logo + ThemeToggle, `main = max-w-6xl flex flex-col px-4 pb-10`, footer). So the split-screen renders as a full-width rounded-3xl bordered grid stretched via `flex-1` — true edge-to-edge full-bleed is impossible without touching app-shell.tsx (out of ownership).
+- globals.css: `.font-script` = Caveat (L211); `--primary` is emerald oklch → `text-primary` = brand green; no indigo used anywhere.
+- view-hero.tsx exports ViewHero/StatCard/Sparkline/toneStroke/Tone — confirmed NOT needed for login; confirmed **no `HeroStat` export** (the transient `Export HeroStat doesn't exist` 500s in dev.log came from parallel 29-b/c/e view rewrites mid-flight; `/` served 200 again before my visual pass — not my files, not my concern).
+
+## What was built (mockup fidelity)
+- **Root:** `grid grid-cols-1 lg:grid-cols-2 overflow-hidden rounded-3xl border border-border/70 bg-white shadow-xl shadow-primary/5 dark:border-primary/15 dark:bg-card`, `w-full flex-1`.
+- **LEFT panel** (FadeIn root): `bg-gradient-to-br from-emerald-50 via-white to-emerald-50/50 dark:from-emerald-950/50 dark:via-background dark:to-emerald-950/20`; decorative aria-hidden blurred blobs (primary/teal, one organic `rounded-[45%_55%...]`) + two low-opacity Leaf icons; Sprout logo chip (rounded-2xl emerald gradient) + "Nutri(SLM green)" + "Eat Smarter • Live Healthier"; eyebrow `text-xs font-semibold tracking-[0.2em] uppercase` (lg+); heading "Better Food" (emerald-950) / "Brighter Days" (primary) + inline Sprout, `whitespace-nowrap`, `lg:text-[2.35rem] xl:text-[2.6rem]` (downsized from text-5xl to prevent icon wrap + bowl collision — documented deviation); paragraph; 3 feature rows (UtensilsCrossed/BarChart3/HeartPulse, h-11 rounded-full bg-primary/10 chips, bold title + muted desc); font-script accent "Good Food / Brighter Days ❤" `-rotate-2 text-3xl` (2 lines so it never overflows the narrower lg panel); trust strip (Users "Trusted by thousands / of happy eaters", ShieldCheck "Evidence-based / nutrition data", Sprout "Designed for a / healthier tomorrow"). Right edge: `/images/hero-bowl.png` `rotate-3 rounded-[3rem] ring-4 ring-white/70 shadow-xl` at `-right-28 top-1/2` (partially cropped by overflow-hidden) + floating font-script "Small Changes Big Impact" `-rotate-6` positioned fully ABOVE the photo (no glyph overlap at any measured width). **<lg:** compact panel = logo + heading only (eyebrow/paragraph/features/trust/bowl all `hidden lg:block`).
+- **RIGHT panel** (FadeIn delay 0.08): centered `max-w-md` Card `rounded-3xl border-primary/10 p-6 sm:p-8 shadow-lg shadow-primary/5`; single `h1` "Welcome to (green)NutriSLM 🌱" + muted sub; `TabsList h-11 w-full rounded-full bg-muted p-1` with triggers `data-[state=active]:bg-primary/15 dark:data-[state=active]:bg-primary/15 data-[state=active]:text-primary dark:... font-semibold shadow-none` (rounded-full segmented control); outline social row (grid → sm:grid-cols-2): "Continue with Google" (inline official 4-color G SVG) / "Continue with Apple" (lucide `Apple`) → `handleSocial` honest toast "…isn't wired in this build — use email or the demo account instead."; "or" divider (aria-hidden); login form: "Email address"/"Password" semibold labels, leading Mail/Lock icons in relative wrappers (pl-9), password reveal Eye/EyeOff button (aria-label + aria-pressed, h-9 target), "Forgot password?" green link → toast with the exact hint string, preserved `role=alert` error box, `h-12 rounded-xl` submit "Sign in" + ArrowRight (Loader2 spin while busy); register form: Full name (User icon, minLength 2/maxLength 80 preserved) / Email / Password (minLength 8, `new-password`) + reveal, submit "Create account" + ArrowRight, preserved "Next step after signup…" note; demo button `h-11 rounded-xl bg-primary/10 text-primary font-semibold hover:bg-primary/15` (Sparkles / Loader2) → same `submit("demo")`; demo hint 2 lines ("demo@nutrislm.app • demo1234" / "(vegetarian, T2DM, peanut allergy)"); under card: Leaf + "Eat Smarter • Live Healthier • Together".
+
+## Logic preservation (byte-for-byte semantics)
+`submit()`, `DEMO`, busy/error state machine, toast titles/descriptions (incl. demo description "vegetarian · T2DM · peanut allergy"), `api.login/register/me` call order, `setSession(me.user, me.profile)`, ApiError fallback message — all identical to the old file. New state added only for UI: `showLoginPw`, `showRegPw` (+ two pure-toast handlers).
+
+## Verification performed (browser, no server/file changes)
+- dev.log after each write: only `✓ Compiled …` lines, zero auth-view errors.
+- DOM rect measurement at 1366/1024: heading/paragraph/features/trust never intersect the bowl (gap ≥ 12px); script label fully above photo (oH = 0); content fits panel bottom (trust 835 < panel 883).
+- VLM review desktop + mobile: "no text overlap, clean, professional, no defects" (after fixing the first pass's heading icon wrap + label overlap).
+- Functional: demo click → dashboard renders (login→me→setSession works); wrong credentials → `role=alert` "Incorrect email or password."; Google → toast; forced `html.dark` → clean dark pass (VLM: properly applied, nothing broken).
+- 390px: no horizontal overflow from my component (scrollWidth excess +96px is the **pre-existing** BareShell decorative blob `-bottom-24 -right-24` in app-shell.tsx — not my file; flagging for coordinator if they want `overflow-x-clip` there).
+
+## Concerns for tsc / final pass
+1. All lucide imports used (incl. `Apple` — exists in lucide-react 0.525); `Camera`/`Salad` from old file dropped; Card sub-components (CardHeader/…) no longer imported.
+2. `SEGMENTED_TRIGGER` is a plain string const (concatenated literals) — no type risk.
+3. `FEATURES`/`TRUST` use `as const` + `.map(({ icon: Icon, … })` — lucide components typed fine as JSX `<Icon …/>`.
+4. `GoogleG` is a prop-less component returning svg — fine.
+5. Tabs a11y: TabsList/Triggers unmodified APIs; single h1 on the page (left headline intentionally a `<p>`).
+6. BareShell header logo sits directly above the panel logo (duplicate brand mark by design of the mockup; can't be removed without touching app-shell.tsx).

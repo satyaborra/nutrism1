@@ -499,7 +499,7 @@ export function SettingsView() {
 
         {/* Account */}
         <FadeIn delay={0.25}>
-          <Card className="h-full rounded-3xl border-destructive/20 shadow-sm">
+          <Card className="h-full rounded-3xl border-primary/15 shadow-sm">
             <CardHeader className="pb-2">
               <CardTitle className="flex items-center gap-2 text-base">
                 <CardIcon className="bg-rose-500/15 text-rose-600 dark:text-rose-400">
