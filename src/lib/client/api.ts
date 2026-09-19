@@ -56,6 +56,32 @@ export class ApiError extends Error {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Global 401 handling: when the session dies (server restart, DB reset, expired
+// cookie) every section used to fire its own error toast — a wall of "Please
+// sign in to continue". Instead we broadcast ONE `nutrislm:unauthorized`
+// window event per burst so the app can return to sign-in gracefully, and we
+// expose isSessionExpiring() so the toast system can silence the burst.
+// ---------------------------------------------------------------------------
+
+const UNAUTHORIZED_EVENT = "nutrislm:unauthorized";
+let authBurstUntil = 0;
+
+/** True while a 401 burst is being handled (the app is heading back to sign-in). */
+export function isSessionExpiring(): boolean {
+  return typeof window !== "undefined" && Date.now() < authBurstUntil;
+}
+
+function notifyUnauthorized(message: string, path: string): void {
+  if (typeof window === "undefined") return;
+  // Auth endpoints 401 as part of normal flow (bootstrap me(), bad login) —
+  // the app handles those locally; never treat them as a session expiry.
+  if (path.startsWith("/api/auth/")) return;
+  if (Date.now() < authBurstUntil) return;
+  authBurstUntil = Date.now() + 4_000;
+  window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT, { detail: { message } }));
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
   try {
@@ -82,6 +108,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       /* non-JSON error body */
     }
     if (res.status === 401 && code === "UNKNOWN") code = "UNAUTHORIZED";
+    if (res.status === 401) notifyUnauthorized(message, path);
     throw new ApiError(res.status, code, message, requestId);
   }
   return (await res.json()) as T;

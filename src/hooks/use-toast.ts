@@ -7,6 +7,7 @@ import type {
   ToastActionElement,
   ToastProps,
 } from "@/components/ui/toast"
+import { isSessionExpiring } from "@/lib/client/api"
 
 const TOAST_LIMIT = 1
 const TOAST_REMOVE_DELAY = 1000000
@@ -143,6 +144,12 @@ function dispatch(action: Action) {
 type Toast = Omit<ToasterToast, "id">
 
 function toast({ ...props }: Toast) {
+  // During a session-expiry burst the dashboard is unmounting back to sign-in;
+  // error toasts fired in that tick by parallel section loaders would stack
+  // into a wall of failures — drop them. See isSessionExpiring() in api.ts.
+  if (isSessionExpiring()) {
+    return { id: "", dismiss: () => {}, update: () => {} }
+  }
   const id = genId()
 
   const update = (props: ToasterToast) =>

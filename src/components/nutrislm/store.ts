@@ -21,6 +21,8 @@ interface NutriStore {
   user: User | null;
   profileBrief: AuthProfileBrief | null;
   bootstrapped: boolean;
+  /** Friendly banner shown on the sign-in screen (e.g. "session expired"). */
+  authNotice: string | null;
   /** Bumped whenever meals change so sections refetch. */
   dataVersion: number;
   /** Active sidebar view. */
@@ -32,6 +34,7 @@ interface NutriStore {
   backfillRequest: { date: string; nonce: number } | null;
   setSession: (user: User | null, profileBrief: AuthProfileBrief | null) => void;
   clearSession: () => void;
+  setAuthNotice: (notice: string | null) => void;
   bumpData: () => void;
   setView: (view: AppView) => void;
   requestLogger: (req: { tab: "text" | "photo"; openFile?: boolean; voice?: boolean; text?: string }) => void;
@@ -44,12 +47,14 @@ export const useNutriStore = create<NutriStore>((set) => ({
   user: null,
   profileBrief: null,
   bootstrapped: false,
+  authNotice: null,
   dataVersion: 0,
   view: "home",
   loggerRequest: null,
   backfillRequest: null,
-  setSession: (user, profileBrief) => set({ user, profileBrief, bootstrapped: true }),
+  setSession: (user, profileBrief) => set({ user, profileBrief, bootstrapped: true, authNotice: null }),
   clearSession: () => set({ user: null, profileBrief: null, bootstrapped: true }),
+  setAuthNotice: (authNotice) => set({ authNotice }),
   bumpData: () => set((s) => ({ dataVersion: s.dataVersion + 1 })),
   setView: (view) => set({ view }),
   requestLogger: (req) => set({ loggerRequest: { ...req, nonce: Date.now() } }),

@@ -40,6 +40,7 @@ import { useToast } from "@/hooks/use-toast";
 import { api, ApiError } from "@/lib/client/api";
 import { useNutriStore } from "./store";
 import { FadeIn } from "./fade-in";
+import { ShieldAlert } from "lucide-react";
 
 const DEMO = { email: "demo@nutrislm.app", password: "demo1234" };
 
@@ -99,6 +100,8 @@ const SEGMENTED_TRIGGER =
 
 export function AuthView() {
   const setSession = useNutriStore((s) => s.setSession);
+  const authNotice = useNutriStore((s) => s.authNotice);
+  const setAuthNotice = useNutriStore((s) => s.setAuthNotice);
   const { toast } = useToast();
 
   const [loginEmail, setLoginEmail] = useState("");
@@ -114,6 +117,7 @@ export function AuthView() {
   async function submit(kind: "login" | "register" | "demo") {
     setBusy(kind);
     setError(null);
+    setAuthNotice(null);
     try {
       const res =
         kind === "login"
@@ -294,6 +298,25 @@ export function AuthView() {
         className="relative flex items-center justify-center bg-[#f2f7ef] px-4 py-8 sm:px-8 dark:bg-transparent"
       >
         <div className="w-full max-w-lg">
+          {authNotice && (
+            <div
+              role="status"
+              className="mb-4 flex items-start gap-2.5 rounded-2xl border border-amber-500/40 bg-amber-50 px-4 py-3 text-sm text-amber-900 shadow-sm dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-200"
+            >
+              <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-300" aria-hidden />
+              <span className="leading-snug">{authNotice}</span>
+              <button
+                type="button"
+                aria-label="Dismiss notice"
+                onClick={() => setAuthNotice(null)}
+                className="ml-auto shrink-0 rounded-full p-1 text-amber-700/70 transition-colors hover:bg-amber-500/15 hover:text-amber-900 focus-visible:outline-2 focus-visible:outline-ring dark:text-amber-300/70 dark:hover:text-amber-100"
+              >
+                <span aria-hidden className="text-base leading-none">
+                  ×
+                </span>
+              </button>
+            </div>
+          )}
           <Card className="w-full rounded-[1.75rem] border-primary/10 p-6 shadow-lg shadow-primary/10 sm:p-9 dark:border-primary/15">
             <Tabs defaultValue="login" className="gap-5">
               <div className="text-center">

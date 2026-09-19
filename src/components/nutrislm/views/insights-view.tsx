@@ -226,7 +226,12 @@ function HeroStats({
         icon={<Flame className="h-5 w-5" aria-hidden />}
         tone="rose"
         label="Calories"
-        value={formatKcal(weekly.avgCalories)}
+        value={
+          <>
+            {formatNumber(weekly.avgCalories)}
+            <span className="ml-1 text-sm font-semibold text-muted-foreground">kcal</span>
+          </>
+        }
         sub={calSub}
         subTone={calSubTone}
         extra={<Sparkline data={weekly.days.map((d) => d.calories)} tone="rose" />}
@@ -235,7 +240,12 @@ function HeroStats({
         icon={<Target className="h-5 w-5" aria-hidden />}
         tone="emerald"
         label="Protein"
-        value={`${formatNumber(weekly.weekTotals.protein)} g`}
+        value={
+          <>
+            {formatNumber(weekly.weekTotals.protein)}
+            <span className="ml-1 text-sm font-semibold text-muted-foreground">g</span>
+          </>
+        }
         sub={proSub}
         subTone={proSubTone}
         extra={<Sparkline data={weekly.days.map((d) => d.protein)} tone="emerald" />}
@@ -244,7 +254,12 @@ function HeroStats({
         icon={<Leaf className="h-5 w-5" aria-hidden />}
         tone="teal"
         label="Fiber"
-        value={`${fiberAvg.toFixed(1)} g`}
+        value={
+          <>
+            {fiberAvg.toFixed(1)}
+            <span className="ml-1 text-sm font-semibold text-muted-foreground">g</span>
+          </>
+        }
         sub={fiberAvg >= 25 ? "↑ fiber-rich week" : "aim for 25 g+"}
         subTone={fiberAvg >= 25 ? "up" : "muted"}
         extra={<Sparkline data={weekly.days.map((d) => d.fiber)} tone="teal" />}
@@ -253,7 +268,12 @@ function HeroStats({
         icon={<Droplet className="h-5 w-5" aria-hidden />}
         tone="blue"
         label="Water"
-        value={`${waterAvg !== null ? formatShort(waterAvg) : "0"} / ${waterGoal} glasses`}
+        value={
+          <>
+            {waterAvg !== null ? formatShort(waterAvg) : "0"} / {waterGoal}
+            <span className="ml-1 text-sm font-semibold text-muted-foreground">gl.</span>
+          </>
+        }
         sub={`today ${hydration.glasses} / ${hydration.goal} glasses`}
         progress={waterAvg !== null && waterGoal > 0 ? Math.max(0, Math.min(1, waterAvg / waterGoal)) : 0}
         extra={<WaterBars filled={filled} />}

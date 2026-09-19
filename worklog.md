@@ -596,3 +596,25 @@ Work Log:
 Stage Summary:
 - Login screen now matches the mockup properly: no duplicate top bar, real-logo brand lockup, full-height masked bowl photo with handwritten annotation, wavy trust strip, bigger headline, wider mint-stage card with pill social buttons and taller inputs — all auth logic (login/register/demo/social/forgot toasts, validation, error alert) preserved.
 - Files: src/components/nutrislm/auth-view.tsx, src/components/nutrislm/app-shell.tsx (BareShell only). Zip rebuilt after this entry.
+
+---
+Task ID: 33
+Agent: Z.ai Code (main)
+Task: "run this project im seeing so many errors in the sections" — diagnose the error flood the user saw in every section and fix the root cause.
+
+Work Log:
+- Server confirmed UP on :3000; dev.log showed a flood of 401 UNAUTHORIZED on every section API (recent-meals, foods, hydration, notes-journal, weekly-summary, daily-summary, weekly-digest, coach-insight, profile) — a dead session still firing from a mounted dashboard.
+- Full section sweep in agent-browser (demo login): Home, Log Meal, Meals, Nutrition Insights, Health Profile, Goals, Settings — ALL render correctly with a valid session; DB healthy (demo-user + 16 meals intact).
+- Root cause: when the session cookie becomes invalid (DB reset / restart / expiry) while the SPA stays open, every section's parallel loaders 401 and each fired its own destructive toast → a wall of "Please sign in to continue" errors. Toaster is global, so the wall persisted even after landing on login.
+- Fix (5 files):
+  1) src/lib/client/api.ts — on any 401 (non-/api/auth/*), dispatch ONE `nutrislm:unauthorized` window event per 4s burst window; exported isSessionExpiring().
+  2) src/hooks/use-toast.ts — toast() drops toasts fired during the burst window (central anti-spam kill-switch).
+  3) src/components/nutrislm/store.ts — added authNotice + setAuthNotice; setSession clears it.
+  4) src/components/nutrislm/app.tsx — listens for the event → clearSession() + sets friendly authNotice, returns user to sign-in gracefully.
+  5) src/components/nutrislm/auth-view.tsx — amber "Your session ended — please sign in again…" banner (ShieldAlert icon, dismissible) above the login card; cleared on submit.
+- E2E verified the exact failure scenario: logged in → wiped cookies while SPA stayed mounted → navigated to Insights → 401 → app bounced to login with amber banner, ZERO toast wall; demo re-login → dashboard restored. Also fixed stat-card truncation: Insights hero cards now render compact unit spans (650 kcal / 151 g / 9.2 g / 2.7 / 8 gl.) so nothing truncates on 390px mobile.
+- Verification: bun run lint clean; tsc src clean; dark mode OK; mobile 390px dashboard + login OK; 0 console errors; no new errors in dev.log.
+
+Stage Summary:
+- The "so many errors in the sections" is fixed at the root: dead sessions now resolve into a single graceful sign-in redirect with a friendly explanation instead of an error flood; all sections verified healthy with a valid session.
+- Files: src/lib/client/api.ts, src/hooks/use-toast.ts, src/components/nutrislm/store.ts, src/components/nutrislm/app.tsx, src/components/nutrislm/auth-view.tsx, src/components/nutrislm/views/insights-view.tsx (stat unit spans). Zip rebuilt after this entry.
