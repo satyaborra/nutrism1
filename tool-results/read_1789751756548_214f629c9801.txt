@@ -1,0 +1,701 @@
+     1→"use client";
+     2→
+     3→/**
+     4→ * Health Profile page — reference-design rebuild. The whole page IS the editor:
+     5→ * identity card → Basic Information / Health Conditions / Computed Targets
+     6→ * → Dietary Preferences / Language / Medical Notes (with the single Save
+     7→ * Profile button) → evidence banner.
+     8→ *
+     9→ * Honesty rules: server-computed targets are rendered as returned; cuisine and
+    10→ * medical notes have no backend field, so they persist on this device and say
+    11→ * so. Conditions beyond T2DM/CKD/CVD are disabled (engine-supported only).
+    12→ */
+    13→import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+    14→import {
+    15→  Cake,
+    16→  Check,
+    17→  Globe,
+    18→  Lock,
+    19→  Pencil,
+    20→  Save,
+    21→  Scale,
+    22→  ScrollText,
+    23→  ShieldCheck,
+    24→  Sparkles,
+    25→  UtensilsCrossed,
+    26→  VenusAndMars,
+    27→} from "lucide-react";
+    28→import { Ruler } from "lucide-react";
+    29→import { Button } from "@/components/ui/button";
+    30→import { Checkbox } from "@/components/ui/checkbox";
+    31→import { Input } from "@/components/ui/input";
+    32→import { Label } from "@/components/ui/label";
+    33→import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+    34→import { Skeleton } from "@/components/ui/skeleton";
+    35→import { Textarea } from "@/components/ui/textarea";
+    36→import { useToast } from "@/hooks/use-toast";
+    37→import { cn } from "@/lib/utils";
+    38→import { api } from "@/lib/client/api";
+    39→import type { ProfileResponse } from "@/lib/client/types";
+    40→import { useNutriStore } from "../store";
+    41→import { FadeIn } from "../fade-in";
+    42→import { ProfileHero } from "./profile-hero";
+    43→import { ConditionsCard } from "./conditions-card";
+    44→import { TargetsCard } from "./targets-card";
+    45→
+    46→const ACTIVITY_OPTIONS: { value: string; label: string }[] = [
+    47→  { value: "sedentary", label: "Sedentary" },
+    48→  { value: "light", label: "Lightly Active" },
+    49→  { value: "moderate", label: "Moderately Active" },
+    50→  { value: "active", label: "Active" },
+    51→  { value: "very_active", label: "Very Active" },
+    52→];
+    53→
+    54→const GOAL_OPTIONS: { value: string; label: string }[] = [
+    55→  { value: "lose_weight", label: "Lose Weight" },
+    56→  { value: "maintain", label: "Maintain Weight" },
+    57→  { value: "gain_muscle", label: "Gain Muscle" },
+    58→];
+    59→
+    60→const SEX_OPTIONS = ["Male", "Female", "Other"];
+    61→
+    62→const DIET_OPTIONS: { value: string; label: string }[] = [
+    63→  { value: "vegetarian", label: "Vegetarian" },
+    64→  { value: "vegan", label: "Vegan" },
+    65→  { value: "eggetarian", label: "Eggetarian" },
+    66→  { value: "non_vegetarian", label: "Non-Vegetarian" },
+    67→];
+    68→
+    69→const ALLERGENS = ["dairy", "nuts", "peanuts", "gluten", "egg", "fish", "soy"];
+    70→
+    71→const LANGUAGE_OPTIONS: { value: string; label: string }[] = [
+    72→  { value: "en", label: "English" },
+    73→  { value: "ta", label: "தமிழ் Tamil" },
+    74→  { value: "te", label: "తెలుగు Telugu" },
+    75→  { value: "hi", label: "हिन्दी Hindi" },
+    76→  { value: "kn", label: "ಕನ್ನಡ Kannada" },
+    77→];
+    78→
+    79→const CUISINE_OPTIONS = ["Indian", "South Indian", "North Indian", "Continental", "Mediterranean", "Fusion"];
+    80→
+    81→const NOTES_KEY = "nutrislm.medicalNotes";
+    82→const CUISINE_KEY = "nutrislm.cuisine";
+    83→const OTHER_KEY = "nutrislm.otherCondition";
+    84→
+    85→interface Draft {
+    86→  age: string;
+    87→  sex: string;
+    88→  heightCm: string;
+    89→  weightKg: string;
+    90→  activityLevel: string;
+    91→  goal: string;
+    92→  dietaryPreference: string;
+    93→  allergies: string[];
+    94→  healthConditions: string[];
+    95→  language: string;
+    96→  regional: boolean;
+    97→}
+    98→
+    99→function draftFromServer(data: ProfileResponse): Draft {
+   100→  const p = data.profile;
+   101→  return {
+   102→    age: p.age?.toString() ?? "",
+   103→    sex: p.sex ? p.sex.charAt(0).toUpperCase() + p.sex.slice(1).toLowerCase() : "Male",
+   104→    heightCm: p.heightCm?.toString() ?? "",
+   105→    weightKg: p.weightKg?.toString() ?? "",
+   106→    activityLevel: p.activityLevel ?? "moderate",
+   107→    goal: p.goal ?? "maintain",
+   108→    dietaryPreference: p.dietaryPreference ?? "vegetarian",
+   109→    allergies: p.allergies ?? [],
+   110→    healthConditions: p.healthConditions ?? [],
+   111→    language: p.language ?? "en",
+   112→    regional: (p.language ?? "en") !== "en",
+   113→  };
+   114→}
+   115→
+   116→/** Server stores sex lowercase — the UI shows display case. */
+   117→function sexForServer(display: string): string {
+   118→  return display.toLowerCase();
+   119→}
+   120→
+   121→function initialsOf(name: string): string {
+   122→  return name
+   123→    .split(/\s+/)
+   124→    .filter(Boolean)
+   125→    .map((w) => w[0])
+   126→    .slice(0, 2)
+   127→    .join("")
+   128→    .toUpperCase();
+   129→}
+   130→
+   131→function FieldLabel({ children, htmlFor }: { children: React.ReactNode; htmlFor?: string }) {
+   132→  return (
+   133→    <Label htmlFor={htmlFor} className="text-xs font-medium text-muted-foreground">
+   134→      {children}
+   135→    </Label>
+   136→  );
+   137→}
+   138→
+   139→function SuffixedInput({
+   140→  id,
+   141→  value,
+   142→  onChange,
+   143→  suffix,
+   144→  placeholder,
+   145→}: {
+   146→  id: string;
+   147→  value: string;
+   148→  onChange: (v: string) => void;
+   149→  suffix: string;
+   150→  placeholder?: string;
+   151→}) {
+   152→  return (
+   153→    <div className="relative">
+   154→      <Input
+   155→        id={id}
+   156→        value={value}
+   157→        inputMode="numeric"
+   158→        placeholder={placeholder}
+   159→        onChange={(e) => onChange(e.target.value.replace(/[^\d]/g, ""))}
+   160→        className="h-10 rounded-xl bg-background pr-14 text-sm font-semibold"
+   161→      />
+   162→      <span className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-medium text-muted-foreground">
+   163→        {suffix}
+   164→      </span>
+   165→    </div>
+   166→  );
+   167→}
+   168→
+   169→export function ProfilePage() {
+   170→  const user = useNutriStore((s) => s.user);
+   171→  const bumpData = useNutriStore((s) => s.bumpData);
+   172→  const { toast } = useToast();
+   173→  const [data, setData] = useState<ProfileResponse | null>(null);
+   174→  const [loading, setLoading] = useState(true);
+   175→  const [draft, setDraft] = useState<Draft | null>(null);
+   176→  const [notes, setNotes] = useState("");
+   177→  const [cuisine, setCuisine] = useState("Indian");
+   178→  const [otherCondition, setOtherCondition] = useState("");
+   179→  const [saving, setSaving] = useState(false);
+   180→  const [highlight, setHighlight] = useState(false);
+   181→  const editorRef = useRef<HTMLDivElement>(null);
+   182→
+   183→  // local-only prefs
+   184→  useEffect(() => {
+   185→    try {
+   186→      setNotes(window.localStorage.getItem(NOTES_KEY) ?? "");
+   187→      setCuisine(window.localStorage.getItem(CUISINE_KEY) ?? "Indian");
+   188→      setOtherCondition(window.localStorage.getItem(OTHER_KEY) ?? "");
+   189→    } catch {
+   190→      /* storage unavailable */
+   191→    }
+   192→  }, []);
+   193→
+   194→  const load = useCallback(() => {
+   195→    let alive = true;
+   196→    api
+   197→      .getProfile()
+   198→      .then((res) => {
+   199→        if (!alive) return;
+   200→        setData(res);
+   201→        setDraft((prev) => prev ?? draftFromServer(res));
+   202→        setLoading(false);
+   203→      })
+   204→      .catch(() => alive && setLoading(false));
+   205→    return () => {
+   206→      alive = false;
+   207→    };
+   208→  }, []);
+   209→
+   210→  useEffect(() => load(), [load]);
+   211→
+   212→  const dirty = useMemo(() => {
+   213→    if (!data || !draft) return false;
+   214→    const d = draftFromServer(data);
+   215→    return (
+   216→      d.age !== draft.age ||
+   217→      d.sex !== draft.sex ||
+   218→      d.heightCm !== draft.heightCm ||
+   219→      d.weightKg !== draft.weightKg ||
+   220→      d.activityLevel !== draft.activityLevel ||
+   221→      d.goal !== draft.goal ||
+   222→      d.dietaryPreference !== draft.dietaryPreference ||
+   223→      JSON.stringify([...d.allergies].sort()) !== JSON.stringify([...draft.allergies].sort()) ||
+   224→      JSON.stringify([...d.healthConditions].sort()) !== JSON.stringify([...draft.healthConditions].sort()) ||
+   225→      (draft.regional ? draft.language : "en") !== d.language
+   226→    );
+   227→  }, [data, draft]);
+   228→
+   229→  function focusEditor() {
+   230→    editorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+   231→    setHighlight(true);
+   232→    window.setTimeout(() => setHighlight(false), 1800);
+   233→  }
+   234→
+   235→  async function save() {
+   236→    if (!draft) return;
+   237→    setSaving(true);
+   238→    try {
+   239→      const num = (v: string) => (v === "" ? null : Number(v));
+   240→      await api.updateProfile({
+   241→        age: num(draft.age),
+   242→        sex: sexForServer(draft.sex),
+   243→        heightCm: num(draft.heightCm),
+   244→        weightKg: num(draft.weightKg),
+   245→        activityLevel: draft.activityLevel,
+   246→        goal: draft.goal,
+   247→        dietaryPreference: draft.dietaryPreference,
+   248→        allergies: draft.allergies,
+   249→        healthConditions: draft.healthConditions.filter((c) => c !== "OTHER"),
+   250→        language: draft.regional ? draft.language : "en",
+   251→      });
+   252→      try {
+   253→        window.localStorage.setItem(NOTES_KEY, notes);
+   254→        window.localStorage.setItem(CUISINE_KEY, cuisine);
+   255→        window.localStorage.setItem(OTHER_KEY, otherCondition);
+   256→      } catch {
+   257→        /* storage unavailable */
+   258→      }
+   259→      const res = await api.getProfile();
+   260→      setData(res);
+   261→      setDraft(draftFromServer(res));
+   262→      bumpData();
+   263→      toast({
+   264→        title: "Profile saved",
+   265→        description: "Your daily targets were recomputed deterministically.",
+   266→      });
+   267→    } catch {
+   268→      toast({ title: "Could not save profile", variant: "destructive" });
+   269→    } finally {
+   270→      setSaving(false);
+   271→    }
+   272→  }
+   273→
+   274→  const p = data?.profile;
+   275→
+   276→  return (
+   277→    <div className="space-y-4 sm:space-y-5">
+   278→      <FadeIn>
+   279→        <ProfileHero />
+   280→      </FadeIn>
+   281→
+   282→      {/* ---------- identity card ---------- */}
+   283→      <FadeIn delay={0.04}>
+   284→        <section
+   285→          aria-label="Your identity"
+   286→          className="flex flex-col gap-4 rounded-3xl border border-border/60 bg-card p-5 shadow-sm shadow-black/[0.03] lg:flex-row lg:items-center lg:gap-6"
+   287→        >
+   288→          <div className="flex min-w-0 flex-1 items-center gap-4">
+   289→            <span
+   290→              className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-emerald-500 to-emerald-600 text-lg font-bold text-white shadow-md shadow-emerald-600/25 sm:h-[4.5rem] sm:w-[4.5rem]"
+   291→              aria-hidden
+   292→            >
+   293→              {user ? initialsOf(user.name) : "—"}
+   294→            </span>
+   295→            <div className="min-w-0">
+   296→              <p className="flex items-center gap-1.5 text-lg font-extrabold tracking-tight">
+   297→                <span className="truncate">{user?.name ?? "—"}</span>
+   298→                <button
+   299→                  type="button"
+   300→                  onClick={focusEditor}
+   301→                  aria-label="Edit your profile details below"
+   302→                  className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-primary focus-visible:outline-2 focus-visible:outline-ring"
+   303→                >
+   304→                  <Pencil className="h-3.5 w-3.5" aria-hidden />
+   305→                </button>
+   306→              </p>
+   307→              <p className="truncate text-xs font-medium text-muted-foreground">{user?.email ?? ""}</p>
+   308→              <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5">
+   309→                {p?.sex && (
+   310→                  <span className="flex items-center gap-1 rounded-full border border-border/70 bg-muted/60 px-2 py-0.5 text-[11px] font-semibold">
+   311→                    <VenusAndMars className="h-3 w-3 text-primary" aria-hidden /> {p.sex}
+   312→                  </span>
+   313→                )}
+   314→                <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+   315→                  <Cake className="h-3.5 w-3.5" aria-hidden /> Age{" "}
+   316→                  <strong className="text-foreground">{p?.age ?? "—"}</strong>
+   317→                </span>
+   318→                <span className="hidden items-center gap-1.5 text-xs font-medium text-muted-foreground sm:flex">
+   319→                  <Ruler className="h-3.5 w-3.5" aria-hidden /> Height{" "}
+   320→                  <strong className="text-foreground">{p?.heightCm ? `${p.heightCm} cm` : "—"}</strong>
+   321→                </span>
+   322→                <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+   323→                  <Scale className="h-3.5 w-3.5" aria-hidden /> Weight{" "}
+   324→                  <strong className="text-foreground">{p?.weightKg ? `${p.weightKg} kg` : "—"}</strong>
+   325→                </span>
+   326→              </div>
+   327→            </div>
+   328→          </div>
+   329→
+   330→          <div className="flex items-center justify-between gap-4 lg:justify-end">
+   331→            <p className="hidden max-w-[15rem] text-right text-[13px] font-semibold italic leading-snug text-primary md:block">
+   332→              “Better food choices today, a healthier tomorrow.”
+   333→            </p>
+   334→            <Button
+   335→              className="h-11 shrink-0 rounded-xl px-5 text-sm font-bold shadow-md shadow-primary/25 active:scale-[0.98]"
+   336→              onClick={focusEditor}
+   337→            >
+   338→              <Pencil className="mr-1.5 h-4 w-4" aria-hidden /> Edit Profile
+   339→            </Button>
+   340→          </div>
+   341→        </section>
+   342→      </FadeIn>
+   343→
+   344→      {/* ---------- editor grid ---------- */}
+   345→      <div ref={editorRef} className="scroll-mt-24">
+   346→        <div
+   347→          className={cn(
+   348→            "grid grid-cols-1 gap-4 rounded-3xl transition-all duration-500 sm:gap-5 xl:grid-cols-3",
+   349→            highlight && "ring-2 ring-primary ring-offset-4 ring-offset-background rounded-[1.7rem]",
+   350→          )}
+   351→        >
+   352→          {/* ----- Basic Information ----- */}
+   353→          <FadeIn delay={0.06} className="min-w-0">
+   354→            <section aria-label="Basic information" className="h-full rounded-3xl border border-border/60 bg-card p-5 shadow-sm shadow-black/[0.03]">
+   355→              <h2 className="flex items-center gap-2 text-base font-bold tracking-tight">
+   356→                <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-sky-100 text-sky-500 dark:bg-sky-500/15 dark:text-sky-400" aria-hidden>
+   357→                  <Pencil className="h-4 w-4" />
+   358→                </span>
+   359→                Basic Information
+   360→              </h2>
+   361→
+   362→              {loading || !draft ? (
+   363→                <div className="mt-4 space-y-3" aria-hidden>
+   364→                  {[0, 1, 2, 3, 4, 5].map((i) => (
+   365→                    <Skeleton key={i} className="h-10 rounded-xl" />
+   366→                  ))}
+   367→                </div>
+   368→              ) : (
+   369→                <div className="mt-4 space-y-3.5">
+   370→                  <div className="space-y-1.5">
+   371→                    <FieldLabel htmlFor="pf-age">Age</FieldLabel>
+   372→                    <SuffixedInput id="pf-age" value={draft.age} onChange={(v) => setDraft({ ...draft, age: v })} suffix="years" placeholder="—" />
+   373→                  </div>
+   374→                  <div className="space-y-1.5">
+   375→                    <FieldLabel>Sex</FieldLabel>
+   376→                    <Select value={draft.sex} onValueChange={(v) => setDraft({ ...draft, sex: v })}>
+   377→                      <SelectTrigger className="h-10 w-full rounded-xl bg-background text-sm font-semibold" aria-label="Sex">
+   378→                        <SelectValue />
+   379→                      </SelectTrigger>
+   380→                      <SelectContent>
+   381→                        {SEX_OPTIONS.map((s) => (
+   382→                          <SelectItem key={s} value={s}>{s}</SelectItem>
+   383→                        ))}
+   384→                      </SelectContent>
+   385→                    </Select>
+   386→                  </div>
+   387→                  <div className="space-y-1.5">
+   388→                    <FieldLabel htmlFor="pf-height">Height</FieldLabel>
+   389→                    <SuffixedInput id="pf-height" value={draft.heightCm} onChange={(v) => setDraft({ ...draft, heightCm: v })} suffix="cm" placeholder="—" />
+   390→                  </div>
+   391→                  <div className="space-y-1.5">
+   392→                    <FieldLabel htmlFor="pf-weight">Weight</FieldLabel>
+   393→                    <SuffixedInput id="pf-weight" value={draft.weightKg} onChange={(v) => setDraft({ ...draft, weightKg: v })} suffix="kg" placeholder="—" />
+   394→                  </div>
+   395→                  <div className="space-y-1.5">
+   396→                    <FieldLabel>Activity level</FieldLabel>
+   397→                    <Select value={draft.activityLevel} onValueChange={(v) => setDraft({ ...draft, activityLevel: v })}>
+   398→                      <SelectTrigger className="h-10 w-full rounded-xl bg-background text-sm font-semibold" aria-label="Activity level">
+   399→                        <SelectValue />
+   400→                      </SelectTrigger>
+   401→                      <SelectContent>
+   402→                        {ACTIVITY_OPTIONS.map((o) => (
+   403→                          <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+   404→                        ))}
+   405→                      </SelectContent>
+   406→                    </Select>
+   407→                  </div>
+   408→                  <div className="space-y-1.5">
+   409→                    <FieldLabel>Goal</FieldLabel>
+   410→                    <Select value={draft.goal} onValueChange={(v) => setDraft({ ...draft, goal: v })}>
+   411→                      <SelectTrigger className="h-10 w-full rounded-xl bg-background text-sm font-semibold" aria-label="Goal">
+   412→                        <SelectValue />
+   413→                      </SelectTrigger>
+   414→                      <SelectContent>
+   415→                        {GOAL_OPTIONS.map((o) => (
+   416→                          <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+   417→                        ))}
+   418→                      </SelectContent>
+   419→                    </Select>
+   420→                  </div>
+   421→                </div>
+   422→              )}
+   423→            </section>
+   424→          </FadeIn>
+   425→
+   426→          {/* ----- Health Conditions ----- */}
+   427→          <FadeIn delay={0.08} className="min-w-0">
+   428→            {draft && (
+   429→              <ConditionsCard
+   430→                selected={draft.healthConditions}
+   431→                onToggle={(id) =>
+   432→                  setDraft((d) => {
+   433→                    if (!d) return d;
+   434→                    const has = d.healthConditions.includes(id);
+   435→                    return {
+   436→                      ...d,
+   437→                      healthConditions: has
+   438→                        ? d.healthConditions.filter((c) => c !== id)
+   439→                        : [...d.healthConditions, id],
+   440→                    };
+   441→                  })
+   442→                }
+   443→                otherText={otherCondition}
+   444→                onOtherText={setOtherCondition}
+   445→              />
+   446→            )}
+   447→          </FadeIn>
+   448→
+   449→          {/* ----- Computed Daily Targets ----- */}
+   450→          <FadeIn delay={0.1} className="min-w-0">
+   451→            <TargetsCard data={data} loading={loading} />
+   452→          </FadeIn>
+   453→        </div>
+   454→      </div>
+   455→
+   456→      {/* ---------- second row ---------- */}
+   457→      <div className="grid grid-cols-1 gap-4 sm:gap-5 xl:grid-cols-3">
+   458→        {/* ----- Dietary Preferences ----- */}
+   459→        <FadeIn delay={0.12} className="min-w-0">
+   460→          <section aria-label="Dietary preferences" className="h-full rounded-3xl border border-border/60 bg-card p-5 shadow-sm shadow-black/[0.03]">
+   461→            <h2 className="flex items-center gap-2 text-base font-bold tracking-tight">
+   462→              <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-emerald-100 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400" aria-hidden>
+   463→                <UtensilsCrossed className="h-4 w-4" />
+   464→              </span>
+   465→              Dietary Preferences
+   466→            </h2>
+   467→
+   468→            {loading || !draft ? (
+   469→              <div className="mt-4 space-y-3" aria-hidden>
+   470→                {[0, 1, 2].map((i) => (
+   471→                  <Skeleton key={i} className="h-10 rounded-xl" />
+   472→                ))}
+   473→              </div>
+   474→            ) : (
+   475→              <div className="mt-4 space-y-3.5">
+   476→                <div className="space-y-1.5">
+   477→                  <FieldLabel>Diet type</FieldLabel>
+   478→                  <Select value={draft.dietaryPreference} onValueChange={(v) => setDraft({ ...draft, dietaryPreference: v })}>
+   479→                    <SelectTrigger className="h-10 w-full rounded-xl bg-background text-sm font-semibold" aria-label="Diet type">
+   480→                      <SelectValue />
+   481→                    </SelectTrigger>
+   482→                    <SelectContent>
+   483→                      {DIET_OPTIONS.map((o) => (
+   484→                        <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+   485→                      ))}
+   486→                    </SelectContent>
+   487→                  </Select>
+   488→                </div>
+   489→                <div className="space-y-1.5">
+   490→                  <FieldLabel htmlFor="pf-cuisine">Cuisine preference</FieldLabel>
+   491→                  <Select
+   492→                    value={cuisine}
+   493→                    onValueChange={(v) => {
+   494→                      setCuisine(v);
+   495→                      try {
+   496→                        window.localStorage.setItem(CUISINE_KEY, v);
+   497→                      } catch { /* ignore */ }
+   498→                    }}
+   499→                  >
+   500→                    <SelectTrigger id="pf-cuisine" className="h-10 w-full rounded-xl bg-background text-sm font-semibold">
+   501→                      <SelectValue />
+   502→                    </SelectTrigger>
+   503→                    <SelectContent>
+   504→                      {CUISINE_OPTIONS.map((c) => (
+   505→                        <SelectItem key={c} value={c}>{c}</SelectItem>
+   506→                      ))}
+   507→                    </SelectContent>
+   508→                  </Select>
+   509→                  <p className="text-[10px] text-muted-foreground">Saved on this device · recipes are IFCT-calibrated.</p>
+   510→                </div>
+   511→                <div className="space-y-1.5">
+   512→                  <FieldLabel>Allergies / Intolerances</FieldLabel>
+   513→                  <div className="flex flex-wrap gap-1.5" role="group" aria-label="Allergies">
+   514→                    {ALLERGENS.map((a) => {
+   515→                      const active = draft.allergies.includes(a);
+   516→                      return (
+   517→                        <button
+   518→                          key={a}
+   519→                          type="button"
+   520→                          aria-pressed={active}
+   521→                          onClick={() =>
+   522→                            setDraft((d) => {
+   523→                              if (!d) return d;
+   524→                              return {
+   525→                                ...d,
+   526→                                allergies: active ? d.allergies.filter((x) => x !== a) : [...d.allergies, a],
+   527→                              };
+   528→                            })
+   529→                          }
+   530→                          className={cn(
+   531→                            "rounded-full border px-3 py-1.5 text-[11.5px] font-semibold capitalize transition-all duration-150 active:scale-95 focus-visible:outline-2 focus-visible:outline-ring",
+   532→                            active
+   533→                              ? "border-amber-500/50 bg-amber-500/15 text-amber-700 dark:text-amber-400"
+   534→                              : "border-border/70 bg-background text-muted-foreground hover:border-amber-400/40 hover:text-foreground",
+   535→                          )}
+   536→                        >
+   537→                          {a}
+   538→                        </button>
+   539→                      );
+   540→                    })}
+   541→                  </div>
+   542→                  {draft.allergies.length > 0 && (
+   543→                    <p className="text-[10px] font-medium text-amber-600 dark:text-amber-400">
+   544→                      Hard-excluded from every recommendation.
+   545→                    </p>
+   546→                  )}
+   547→                </div>
+   548→              </div>
+   549→            )}
+   550→          </section>
+   551→        </FadeIn>
+   552→
+   553→        {/* ----- Language Preference ----- */}
+   554→        <FadeIn delay={0.14} className="min-w-0">
+   555→          <section aria-label="Language preference" className="h-full rounded-3xl border border-border/60 bg-card p-5 shadow-sm shadow-black/[0.03]">
+   556→            <h2 className="flex items-center gap-2 text-base font-bold tracking-tight">
+   557→              <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-teal-100 text-teal-600 dark:bg-teal-500/15 dark:text-teal-400" aria-hidden>
+   558→                <Globe className="h-4 w-4" />
+   559→              </span>
+   560→              Language Preference
+   561→            </h2>
+   562→            <p className="mt-1 text-xs text-muted-foreground">Get recommendations in your preferred language.</p>
+   563→
+   564→            {loading || !draft ? (
+   565→              <div className="mt-4 space-y-3" aria-hidden>
+   566→                <Skeleton className="h-10 rounded-xl" />
+   567→                <Skeleton className="h-12 rounded-xl" />
+   568→              </div>
+   569→            ) : (
+   570→              <div className="mt-4 space-y-3.5">
+   571→                <div className="space-y-1.5">
+   572→                  <FieldLabel>App &amp; voice language</FieldLabel>
+   573→                  <Select
+   574→                    value={draft.regional ? draft.language : "en"}
+   575→                    disabled={!draft.regional}
+   576→                    onValueChange={(v) => setDraft({ ...draft, language: v })}
+   577→                  >
+   578→                    <SelectTrigger className="h-10 w-full rounded-xl bg-background text-sm font-semibold" aria-label="Language">
+   579→                      <SelectValue />
+   580→                    </SelectTrigger>
+   581→                    <SelectContent>
+   582→                      {LANGUAGE_OPTIONS.map((o) => (
+   583→                        <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+   584→                      ))}
+   585→                    </SelectContent>
+   586→                  </Select>
+   587→                  {!draft.regional && (
+   588→                    <p className="text-[10px] text-muted-foreground">Enable regional support to pick a language.</p>
+   589→                  )}
+   590→                </div>
+   591→                <label
+   592→                  className={cn(
+   593→                    "flex cursor-pointer items-start gap-3 rounded-2xl border px-3.5 py-3 transition-colors",
+   594→                    draft.regional ? "border-primary/30 bg-primary/[0.05]" : "border-border/60 bg-background hover:bg-muted/40",
+   595→                  )}
+   596→                >
+   597→                  <Checkbox
+   598→                    checked={draft.regional}
+   599→                    onCheckedChange={(v) =>
+   600→                      setDraft((d) => {
+   601→                        if (!d) return d;
+   602→                        const on = v === true;
+   603→                        return { ...d, regional: on, language: on ? (d.language !== "en" ? d.language : "ta") : "en" };
+   604→                      })
+   605→                    }
+   606→                    aria-label="Enable regional language support"
+   607→                    className="mt-0.5 data-[state=checked]:border-primary data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground"
+   608→                  />
+   609→                  <span>
+   610→                    <span className="block text-[13px] font-bold leading-tight">Enable regional language support</span>
+   611→                    <span className="mt-0.5 block text-[11px] text-muted-foreground">
+   612→                      (Tamil, Telugu, Hindi, Kannada) — drives voice input and food descriptions.
+   613→                    </span>
+   614→                  </span>
+   615→                </label>
+   616→              </div>
+   617→            )}
+   618→          </section>
+   619→        </FadeIn>
+   620→
+   621→        {/* ----- Medical Notes + save ----- */}
+   622→        <FadeIn delay={0.16} className="min-w-0">
+   623→          <section aria-label="Medical notes and save" className="flex h-full flex-col rounded-3xl border border-border/60 bg-card p-5 shadow-sm shadow-black/[0.03]">
+   624→            <h2 className="flex items-center gap-2 text-base font-bold tracking-tight">
+   625→              <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-violet-100 text-violet-500 dark:bg-violet-500/15 dark:text-violet-400" aria-hidden>
+   626→                <ScrollText className="h-4 w-4" />
+   627→              </span>
+   628→              Medical Notes <span className="text-xs font-medium text-muted-foreground">(Optional)</span>
+   629→            </h2>
+   630→            <p className="mt-1 text-xs text-muted-foreground">Private context for your own reference.</p>
+   631→
+   632→            <Textarea
+   633→              value={notes}
+   634→              onChange={(e) => setNotes(e.target.value)}
+   635→              placeholder="Add any additional details (e.g., medications, lab values, specific dietary restrictions)…"
+   636→              aria-label="Medical notes"
+   637→              className="mt-4 min-h-[92px] flex-1 resize-none rounded-2xl bg-background text-[13px]"
+   638→            />
+   639→            <p className="mt-1.5 text-[10px] text-muted-foreground">
+   640→              Stored only on this device — never uploaded.
+   641→            </p>
+   642→
+   643→            <Button
+   644→              onClick={save}
+   645→              disabled={saving || loading || !draft}
+   646→              className={cn(
+   647→                "mt-4 h-12 w-full rounded-xl text-sm font-bold shadow-md shadow-primary/25 transition-all active:scale-[0.98]",
+   648→                dirty && "ring-2 ring-primary/40 ring-offset-2 ring-offset-card",
+   649→              )}
+   650→            >
+   651→              {saving ? (
+   652→                <span className="flex items-center gap-2">
+   653→                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" aria-hidden />
+   654→                  Saving…
+   655→                </span>
+   656→              ) : dirty ? (
+   657→                <>
+   658→                  <Save className="mr-1.5 h-4 w-4" aria-hidden /> Save Profile
+   659→                  <span aria-hidden className="ml-1 h-2 w-2 rounded-full bg-amber-300" />
+   660→                </>
+   661→              ) : (
+   662→                <>
+   663→                  <Check className="mr-1.5 h-4 w-4" aria-hidden /> Saved
+   664→                </>
+   665→              )}
+   666→            </Button>
+   667→            <p className="mt-2.5 flex items-center justify-center gap-1.5 text-[10.5px] font-medium text-muted-foreground">
+   668→              <Lock className="h-3 w-3" aria-hidden /> Your health data is private and secure.
+   669→            </p>
+   670→          </section>
+   671→        </FadeIn>
+   672→      </div>
+   673→
+   674→      {/* ---------- evidence banner ---------- */}
+   675→      <FadeIn delay={0.18}>
+   676→        <div className="relative flex flex-col items-start gap-3 overflow-hidden rounded-3xl border border-primary/15 bg-gradient-to-r from-primary/[0.07] via-card to-teal-500/[0.06] px-5 py-4 sm:flex-row sm:items-center sm:px-6">
+   677→          <img
+   678→            src="/images/hero-leaves.png"
+   679→            alt=""
+   680→            aria-hidden
+   681→            className="pointer-events-none absolute inset-y-0 right-0 h-full w-40 object-cover opacity-25 [mask-image:linear-gradient(to_left,black_30%,transparent)] dark:opacity-15"
+   682→          />
+   683→          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary/15 text-primary" aria-hidden>
+   684→            <ShieldCheck className="h-5 w-5" />
+   685→          </span>
+   686→          <div className="min-w-0 flex-1">
+   687→            <p className="text-sm font-extrabold tracking-tight">Personalized. Safe. Evidence-Based.</p>
+   688→            <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+   689→              Your profile powers disease-aware meal plans using trusted guidelines
+   690→              (ICMR · ADA · KDIGO · AHA).
+   691→            </p>
+   692→          </div>
+   693→          <span className="relative hidden items-center gap-1.5 rounded-full border border-primary/25 bg-card px-3 py-1.5 text-[11px] font-bold text-primary lg:flex">
+   694→            <Sparkles className="h-3.5 w-3.5" aria-hidden /> Zero fabricated numbers
+   695→          </span>
+   696→        </div>
+   697→      </FadeIn>
+   698→    </div>
+   699→  );
+   700→}
+   701→
