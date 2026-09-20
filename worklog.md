@@ -708,3 +708,4 @@ Stage Summary:
 - XAI is live end-to-end: users now see WHY every number exists — AI confidence badges on recognition/portion, deterministic factor lists, per-food contribution %, DB source attribution (IFCT2017), honest zeros for unmatched items, and target-formula explainers on Home/Meals. Consistent with coach's Why/Evidence pattern.
 - Files: src/lib/nutrition/xai.ts (new); confirm-food, log-meal routes; meal-service; client/types; components/nutrislm/xai.tsx (new); food-logger, meals-view, recent-meals, home-view.
 - Follow-ups (optional): insights-view "How we calculate" footers per stat card; coach snapshot gains provenance; weekly digest explanation chips.
+- Task 37 addendum: push to GitHub BLOCKED — token revoked by user (401; expected, advised after each use). Local commit `e0a0612` (Task 37 XAI) ready to push with a fresh token. Zip refreshed to include Task 37 (integrity OK) and served at /nutrislm-project.zip.
