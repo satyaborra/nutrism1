@@ -10,7 +10,7 @@ import { evaluateCompliance } from "@/lib/nutrition/disease-engine";
 import type { Profile, Meal, MealFood } from "@prisma/client";
 
 export interface MealWithFoods extends Meal {
-  foods: MealFood[];
+  foods: (MealFood & { food: { source: string } | null })[];
 }
 
 export async function getProfileFor(userId: string): Promise<Profile> {
@@ -19,12 +19,14 @@ export async function getProfileFor(userId: string): Promise<Profile> {
   return db.profile.create({ data: { userId } });
 }
 
+const FOODS_INCLUDE = { foods: { include: { food: { select: { source: true } } } } } as const;
+
 export async function getMealsForDate(userId: string, dateKey: string): Promise<MealWithFoods[]> {
   const start = new Date(`${dateKey}T00:00:00`);
   const end = new Date(`${dateKey}T23:59:59.999`);
   return db.meal.findMany({
     where: { userId, eatenAt: { gte: start, lte: end } },
-    include: { foods: true },
+    include: FOODS_INCLUDE,
     orderBy: { eatenAt: "desc" },
   });
 }
@@ -32,7 +34,7 @@ export async function getMealsForDate(userId: string, dateKey: string): Promise<
 export async function getRecentMeals(userId: string, limit: number): Promise<MealWithFoods[]> {
   return db.meal.findMany({
     where: { userId },
-    include: { foods: true },
+    include: FOODS_INCLUDE,
     orderBy: { eatenAt: "desc" },
     take: limit,
   });
@@ -74,6 +76,7 @@ export function serializeMeal(m: MealWithFoods) {
       preparation: f.preparation,
       confidence: f.confidence,
       quantitySource: f.quantitySource,
+      source: f.food?.source ?? null,
       nutrition: {
         calories: f.calories, protein: f.protein, carbohydrates: f.carbohydrates, fat: f.fat, fiber: f.fiber,
         sugar: f.sugar, sodium: f.sodium, potassium: f.potassium, phosphorus: f.phosphorus,

@@ -58,6 +58,7 @@ import type {
 } from "@/lib/client/types";
 import { api, ApiError, fileToDataUrl } from "@/lib/client/api";
 import { MEAL_TYPES, languageLabel, mealLabel, useNutriStore } from "./store";
+import { ConfidenceBadge, ExplainPanel, TotalsExplain } from "./xai";
 import { FavoritesBar } from "./favorites-bar";
 import { ComplianceAlerts } from "./summary";
 
@@ -472,6 +473,9 @@ export function FoodLogger({ onLogged, voiceLang }: { onLogged: () => void; voic
       quantity: Number(l.quantity) || 0,
       unit: l.unit,
       preparation: l.preparation,
+      // XAI provenance — recorded so saved meals keep their recognition story.
+      confidence: l.foodId ? l.confidence : null,
+      quantitySource: l.quantitySource,
     }));
   }
 
@@ -1102,12 +1106,6 @@ const MATCH_UI: Record<MatchStatus, { label: string; cls: string }> = {
   unmatched: { label: "Not matched", cls: "border-destructive/40 bg-destructive/10 text-destructive" },
 };
 
-const QTY_SOURCE_LABEL: Record<QuantitySource, string> = {
-  user: "You said",
-  estimated: "AI estimated",
-  unknown: "Quantity unclear",
-};
-
 function LineEditor({
   line,
   onPatch,
@@ -1133,14 +1131,7 @@ function LineEditor({
         <Badge variant="outline" className={cn("text-[10px]", match.cls)}>
           {match.label}
         </Badge>
-        {line.confidence < 1 && (
-          <Badge variant="outline" className="text-[10px] text-muted-foreground">
-            {Math.round(line.confidence * 100)}%
-          </Badge>
-        )}
-        <Badge variant="secondary" className="text-[10px]">
-          {QTY_SOURCE_LABEL[line.quantitySource]}
-        </Badge>
+        <ConfidenceBadge confidence={line.confidence < 1 ? line.confidence : null} quantitySource={line.quantitySource} />
         <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" aria-label={`Remove ${line.displayName}`} onClick={() => onRemove(line.lineId)}>
           <Trash2 className="h-3.5 w-3.5" />
         </Button>
@@ -1364,9 +1355,49 @@ function ConfirmPreview({
           </li>
         ))}
       </ul>
+
+      {/* XAI: per-food contribution + "why this number?" for every line */}
+      <div className="rounded-xl border border-primary/15 bg-primary/[0.03] p-2.5">
+        <p className="text-xs font-semibold">Nutrition breakdown — where each number comes from</p>
+        <ul className="mt-1.5 space-y-1.5">
+          {result.foods.map((f) => {
+            const pct = t.calories > 0 && f.foodId ? Math.round((f.nutrition.calories / t.calories) * 100) : 0;
+            return (
+              <li key={f.lineId} className="rounded-lg bg-background/70 p-2">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span className="min-w-0 flex-1 truncate text-xs font-medium" title={f.displayName}>
+                    {f.displayName}
+                    <span className="ml-1 font-normal text-muted-foreground">
+                      · {f.quantity} {f.unit}
+                    </span>
+                  </span>
+                  <ConfidenceBadge confidence={f.confidence} quantitySource={f.quantitySource} />
+                  <span className="shrink-0 text-xs font-semibold tabular-nums">{formatKcal(f.nutrition.calories)}</span>
+                  {pct > 0 && (
+                    <span className="relative hidden h-1.5 w-14 shrink-0 overflow-hidden rounded-full bg-muted sm:block" aria-hidden>
+                      <span className="absolute inset-y-0 left-0 rounded-full bg-primary/70" style={{ width: `${Math.min(100, pct)}%` }} />
+                    </span>
+                  )}
+                  {pct > 0 && <span className="w-8 shrink-0 text-right text-[10px] tabular-nums text-muted-foreground">{pct}%</span>}
+                </div>
+                {(f.explain || f.conversionNote) && (
+                  <div className="mt-1">
+                    {f.explain && <ExplainPanel explain={f.explain} />}
+                    {!f.explain && f.conversionNote && <p className="text-[11px] text-muted-foreground">{f.conversionNote}</p>}
+                  </div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+
+      {result.totalsExplain && <TotalsExplain explanation={result.totalsExplain} />}
+
       {result.foods.some((f) => f.source) && (
         <p className="text-[11px] text-muted-foreground">
-          Source: {result.foods.find((f) => f.source)?.source ?? "food database"} · per {result.foods.find((f) => f.perReference)?.perReference ?? "reference"}
+          Source: {[...new Set(result.foods.map((f) => f.source).filter(Boolean))].join(", ") || "food database"} · per{" "}
+          {result.foods.find((f) => f.perReference)?.perReference ?? "reference"}
         </p>
       )}
       {result.note && <p className="text-xs text-muted-foreground">{result.note}</p>}

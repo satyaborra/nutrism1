@@ -49,6 +49,7 @@ import { ActivityCalendar } from "../activity-calendar";
 import { FadeIn } from "../fade-in";
 import { Donut } from "../donut";
 import { mealLabel, useNutriStore } from "../store";
+import { ConfidenceBadge, ProvenanceLine, TargetExplainer } from "../xai";
 import { api } from "@/lib/client/api";
 import { formatGrams, formatKcal, pct, todayKey } from "@/lib/client/format";
 import { mealImageFor } from "@/lib/client/meal-images";
@@ -288,19 +289,28 @@ function TimelineMealCard({
       {expanded && (
         <div id={detailId} className="border-t border-primary/10 bg-primary/[0.03] px-3 py-3 sm:px-4 dark:bg-primary/[0.05]">
           <div className="space-y-1.5">
-            {meal.foods.map((f) => (
-              <div key={f.id} className="flex items-center gap-2 text-xs">
-                <span className="min-w-0 flex-1 truncate">
-                  <span className="font-medium">{f.name}</span>
-                  <span className="text-muted-foreground">
-                    {" "}
-                    · {f.quantity} {f.unit}
-                    {f.preparation ? `, ${f.preparation}` : ""}
+            {meal.foods.map((f) => {
+              const share = meal.totals.calories > 0 && f.foodId ? Math.round((f.nutrition.calories / meal.totals.calories) * 100) : 0;
+              return (
+                <div key={f.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                  <span className="min-w-0 flex-1 basis-32 truncate">
+                    <span className="font-medium">{f.name}</span>
+                    <span className="text-muted-foreground">
+                      {" "}
+                      · {f.quantity} {f.unit}
+                      {f.preparation ? `, ${f.preparation}` : ""}
+                    </span>
                   </span>
-                </span>
-                <span className="shrink-0 font-semibold tabular-nums">{formatKcal(f.nutrition.calories)}</span>
-              </div>
-            ))}
+                  <ConfidenceBadge
+                    confidence={f.confidence != null && f.confidence < 1 ? f.confidence : null}
+                    quantitySource={f.quantitySource === "estimated" || f.quantitySource === "unknown" ? f.quantitySource : null}
+                    className="shrink-0"
+                  />
+                  {share > 0 && <span className="w-8 shrink-0 text-right text-[10px] tabular-nums text-muted-foreground">{share}%</span>}
+                  <span className="shrink-0 font-semibold tabular-nums">{formatKcal(f.nutrition.calories)}</span>
+                </div>
+              );
+            })}
             {meal.foods.length === 0 && (
               <p className="text-xs text-muted-foreground">No food lines recorded for this meal.</p>
             )}
@@ -313,6 +323,11 @@ function TimelineMealCard({
             <span className="tabular-nums">F {formatGrams(meal.totals.fat)}</span>
             <span className="tabular-nums">Fiber {formatGrams(meal.totals.fiber)}</span>
           </div>
+          {/* XAI: provenance — where the numbers came from and what the AI did */}
+          <ProvenanceLine
+            foods={meal.foods.map((f) => ({ name: f.name, confidence: f.confidence, quantitySource: f.quantitySource, source: f.source }))}
+            className="mt-2"
+          />
           {meal.userNotes && <p className="mt-2 text-xs italic text-muted-foreground">“{meal.userNotes}”</p>}
         </div>
       )}
@@ -513,6 +528,11 @@ export function MealsView() {
           image="/images/hero-bowl.png"
           stats={hero ? <MealsHeroStats hero={hero} /> : heroFailed ? undefined : <HeroStatSkeletons />}
         />
+      </FadeIn>
+
+      {/* XAI: explain where the daily targets come from */}
+      <FadeIn delay={0.02}>
+        <TargetExplainer />
       </FadeIn>
 
       <div className="grid min-w-0 gap-5 lg:grid-cols-[1fr_340px]">

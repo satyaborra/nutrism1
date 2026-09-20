@@ -685,3 +685,26 @@ Stage Summary:
 - Zip deliverable public/nutrislm-project.zip is current (post-Task-35) and committed.
 - PUSH COMPLETE (Task 36 addendum): user provided fresh PAT; pushed main to github.com/satyaborra/nutrism1 → remote = local = `6c23530`. All 5 commits live on GitHub (zip refresh, Task 35 AI Coach, db snapshots, worklog Task 36). Token used inline only, NOT persisted to config/disk. User advised to revoke after use (shared in chat).
 - Z.AI STORE (Task 36 addendum 2): rebuilt public/nutrislm-project.zip fresh (31.6 MB, integrity OK) — includes AI Coach source, worklog through push-complete, schema, seed script. Verified served at /nutrislm-project.zip (HTTP 200). Committed `06c3829` + pushed; remote = local = 06c3829. GitHub and Z.ai BOTH hold the updated version. Fresh-clone setup: bun install → db:push → db:seed → dev.
+
+---
+Task ID: 37
+Agent: Z.ai Code (main)
+Task: Explainable AI (XAI) in food log + everywhere relevant (user request)
+
+Work Log:
+- Explored full food-logging pipeline via Explore agent: analyze-food (AI perception w/ confidence) → confirm-food (deterministic calc) → log-meal (persist). Found the key gap: AI confidence was computed at analyze time but hardcoded `null` at confirm/log/persist — provenance was lost.
+- NEW `src/lib/nutrition/xai.ts`: deterministic XAI builders — `buildLineExplanation` (portion math → DB provenance → quantity provenance → recognition confidence; honest "0 nutrition, never invents numbers" for unmatched) and `buildTotalsExplanation` (contributor %s + method bullets). Zero LLM involved — explanations composed from real pipeline data, consistent with "AI perceives, DB calculates" philosophy.
+- confirm-food: plumbs draft confidence/quantitySource per line, detects user edits (edited → confidence 1 / qtySource user), attaches `explain` per line + `totalsExplain` for meal; fixed `perReference` to "100 g" / "1 katori" style (was bare servingUnit).
+- log-meal: accepts sanitized per-line provenance (confidence clamp 0..1, qtySource enum), PERSISTS to MealFood (columns existed), returns meal `explanation`.
+- meal-service: meal reads now include Food.source via relation; serializeMeal emits per-food `source`.
+- Client types: LineExplanation/TotalsExplanation/Contribution; ConfirmFoodLine.explain, ConfirmFoodResponse.totalsExplain, LogMealResponse.explanation?, MealFoodDetail.source?.
+- NEW `src/components/nutrislm/xai.tsx`: ConfidenceBadge (emerald ≥80 / amber ≥50 / red <50, hides for user-entered), ExplainPanel ("Why this number?" collapsible w/ icon bullets), ContributionList (% bars), TotalsExplain ("How were these totals calculated?" card), ProvenanceLine (verified sources + AI-estimated/low-confidence/unmapped flags), TargetExplainer (Mifflin-St Jeor × activity × goal, ICMR-NIN protein, NIN fiber — "no AI guessing").
+- food-logger: foodsPayload sends provenance; LineEditor uses ConfidenceBadge; ConfirmPreview now has "Nutrition breakdown — where each number comes from" (per-line kcal + share bar + Why panel) + TotalsExplain + deduped source line.
+- meals-view: expanded timeline shows per-line share %, confidence badges, ProvenanceLine footer. recent-meals: ProvenanceLine under full nutrient panel. home-view + meals-view: TargetExplainer under target displays.
+- FIX during verify: meals-view food row clipped kcal at 390px → flex-wrap + basis-32.
+- E2E (agent-browser): logged "2 cups rice + 1 katori dal" (637 kcal; 82%/18% shares; conversion factors; "Verified data: IFCT2017"); vague "some paneer butter masala with a couple of naan" → AI 90% badges + "AI estimated" + estimate disclosure factors + "1 unmapped item (0 nutrition)" honest flag; TargetExplainer expand verified; reference string now "per 1 katori"; mobile 390px clean; 0 console errors; lint + tsc clean.
+
+Stage Summary:
+- XAI is live end-to-end: users now see WHY every number exists — AI confidence badges on recognition/portion, deterministic factor lists, per-food contribution %, DB source attribution (IFCT2017), honest zeros for unmatched items, and target-formula explainers on Home/Meals. Consistent with coach's Why/Evidence pattern.
+- Files: src/lib/nutrition/xai.ts (new); confirm-food, log-meal routes; meal-service; client/types; components/nutrislm/xai.tsx (new); food-logger, meals-view, recent-meals, home-view.
+- Follow-ups (optional): insights-view "How we calculate" footers per stat card; coach snapshot gains provenance; weekly digest explanation chips.

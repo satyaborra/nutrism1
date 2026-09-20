@@ -34,6 +34,7 @@ import { formatGrams, formatKcal, localeFor, todayKey } from "@/lib/client/forma
 import { mealImageFor } from "@/lib/client/meal-images";
 import type { DailySummaryResponse, RecentMealsResponse, WeeklySummaryResponse } from "@/lib/client/types";
 import { CalorieRing } from "../summary";
+import { TargetExplainer } from "../xai";
 import { HydrationWidget } from "../hydration-widget";
 import { RecommendationCard } from "../recommendation-card";
 import { useNutriStore, MEAL_TYPE_ICON } from "../store";
@@ -279,6 +280,8 @@ function TodaysNutrition({ summary }: { summary: DailySummaryResponse }) {
             />
           ))}
         </div>
+        {/* XAI: explain where the daily targets come from */}
+        <TargetExplainer className="lg:col-span-2" />
       </CardContent>
     </Card>
   );

@@ -1,0 +1,894 @@
+     1→"use client";
+     2→
+     3→/**
+     4→ * Meals view — mockup-faithful rebuild:
+     5→ *  • Emerald hero with four live StatCards (Total Intake vs yesterday +
+     6→ *    7-day sparkline, Daily Target, Meals Logged, Streak).
+     7→ *  • Tabs — Today (meal timeline with inline expand), This Week (activity
+     8→ *    calendar), This Month (calendar + full meal history) — plus a day
+     9→ *    navigator (never into the future).
+    10→ *  • Right rail — Log a Meal, Quick Add (water logs instantly via the
+    11→ *    hydration API), Today's Nutrients donut rings, quote card.
+    12→ *  • Full-width horizontal "Recent Meals" strip.
+    13→ *
+    14→ * Every number is server data (daily-summary ×2, weekly-summary,
+    15→ * recent-meals, hydration) — the client only formats. Failures are
+    16→ * console.warn'ed and degrade gracefully; nothing crashes.
+    17→ */
+    18→import { useEffect, useState, type ReactNode } from "react";
+    19→import { addDays, format, parseISO } from "date-fns";
+    20→import {
+    21→  ArrowRight,
+    22→  CalendarDays,
+    23→  Camera,
+    24→  ChevronLeft,
+    25→  ChevronRight,
+    26→  Coffee,
+    27→  Flame,
+    28→  Heart,
+    29→  History,
+    30→  Leaf,
+    31→  Moon,
+    32→  Plus,
+    33→  Sparkles,
+    34→  Sun,
+    35→  Sunrise,
+    36→  Target,
+    37→  UtensilsCrossed,
+    38→  Wheat,
+    39→} from "lucide-react";
+    40→import { Badge } from "@/components/ui/badge";
+    41→import { Button } from "@/components/ui/button";
+    42→import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+    43→import { Skeleton } from "@/components/ui/skeleton";
+    44→import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+    45→import { useToast } from "@/hooks/use-toast";
+    46→import { cn } from "@/lib/utils";
+    47→import { RecentMeals } from "../recent-meals";
+    48→import { ActivityCalendar } from "../activity-calendar";
+    49→import { FadeIn } from "../fade-in";
+    50→import { Donut } from "../donut";
+    51→import { mealLabel, useNutriStore } from "../store";
+    52→import { api } from "@/lib/client/api";
+    53→import { formatGrams, formatKcal, pct, todayKey } from "@/lib/client/format";
+    54→import { mealImageFor } from "@/lib/client/meal-images";
+    55→import type { DailySummaryResponse, MealDetail, WeeklySummaryResponse } from "@/lib/client/types";
+    56→import { Sparkline, StatCard, ViewHero, type Tone } from "./view-hero";
+    57→
+    58→/* ------------------------------------------------------------------ */
+    59→/* Small helpers                                                       */
+    60→/* ------------------------------------------------------------------ */
+    61→
+    62→/** Shift a YYYY-MM-DD key by N days (local time, noon-anchored). */
+    63→function shiftDayKey(key: string, days: number): string {
+    64→  return format(addDays(parseISO(`${key}T12:00:00`), days), "yyyy-MM-dd");
+    65→}
+    66→
+    67→/** "08:30 AM" from an ISO datetime — never crashes on bad input. */
+    68→function timeLabel(iso: string): string {
+    69→  const d = parseISO(iso);
+    70→  return Number.isNaN(d.getTime()) ? "—" : format(d, "hh:mm a");
+    71→}
+    72→
+    73→/** "Fri 19 Sep, 08:30 AM" from an ISO datetime. */
+    74→function dayTimeLabel(iso: string): string {
+    75→  const d = parseISO(iso);
+    76→  return Number.isNaN(d.getTime()) ? "—" : format(d, "EEE d MMM, hh:mm a");
+    77→}
+    78→
+    79→/** Timeline rail chip per meal slot (tinted circle + connector line). */
+    80→const SLOT_META: Record<string, { icon: ReactNode; chip: string; title: string }> = {
+    81→  breakfast: { icon: <Sunrise className="h-4 w-4" />, chip: "bg-amber-500/15 text-amber-600 dark:text-amber-400", title: "Breakfast" },
+    82→  lunch: { icon: <Sun className="h-4 w-4" />, chip: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400", title: "Lunch" },
+    83→  snack: { icon: <Coffee className="h-4 w-4" />, chip: "bg-orange-500/15 text-orange-600 dark:text-orange-400", title: "Snack" },
+    84→  dinner: { icon: <Moon className="h-4 w-4" />, chip: "bg-rose-500/15 text-rose-600 dark:text-rose-400", title: "Dinner" },
+    85→};
+    86→
+    87→function slotMeta(mealType: string) {
+    88→  return SLOT_META[mealType] ?? SLOT_META.snack;
+    89→}
+    90→
+    91→/**
+    92→ * Honest provenance badge. The API's meal.source is "text" | "manual" |
+    93→ * "image" | "recommendation" | "relog" — there is no "verified"/"photo"
+    94→ * value, so: "Verified ✓" only when every food line matched the verified DB
+    95→ * food library (foodId non-null); "From Scan" for photo-logged meals that
+    96→ * are not fully matched. Everything else shows no badge.
+    97→ */
+    98→function SourceBadge({ meal }: { meal: MealDetail }) {
+    99→  const allMatched = meal.foods.length > 0 && meal.foods.every((f) => f.foodId !== null);
+   100→  if (allMatched) {
+   101→    return (
+   102→      <Badge variant="outline" className="border-emerald-500/40 bg-emerald-500/10 px-1.5 py-0 text-[10px] font-medium text-emerald-700 dark:text-emerald-400">
+   103→        Verified ✓
+   104→      </Badge>
+   105→    );
+   106→  }
+   107→  if (meal.source === "image") {
+   108→    return (
+   109→      <Badge variant="secondary" className="px-1.5 py-0 text-[10px] font-medium text-muted-foreground">
+   110→        From Scan
+   111→      </Badge>
+   112→    );
+   113→  }
+   114→  return null;
+   115→}
+   116→
+   117→/* ------------------------------------------------------------------ */
+   118→/* Hero stat cards                                                     */
+   119→/* ------------------------------------------------------------------ */
+   120→
+   121→interface HeroData {
+   122→  today: DailySummaryResponse;
+   123→  yesterday: DailySummaryResponse | null;
+   124→  week: WeeklySummaryResponse;
+   125→}
+   126→
+   127→function MealsHeroStats({ hero }: { hero: HeroData }) {
+   128→  const { today, yesterday, week } = hero;
+   129→  const kcal = today.consumed.calories;
+   130→  const target = today.targets.calories;
+   131→  const mealsLogged = today.meals.length;
+   132→
+   133→  // vs-yesterday delta — only when a comparable baseline exists.
+   134→  const yKcal = yesterday?.consumed.calories ?? null;
+   135→  let deltaSub: ReactNode = "First logged day";
+   136→  let deltaTone: "muted" | "up" | "down" = "muted";
+   137→  if (yKcal !== null) {
+   138→    if (yKcal <= 0) {
+   139→      deltaSub = "No intake logged yesterday";
+   140→    } else {
+   141→      const delta = Math.round(((kcal - yKcal) / yKcal) * 100);
+   142→      if (delta > 0) {
+   143→        deltaSub = `↑ ${delta}% vs yesterday`;
+   144→        deltaTone = "up";
+   145→      } else if (delta < 0) {
+   146→        deltaSub = `↓ ${Math.abs(delta)}% vs yesterday`;
+   147→        deltaTone = "down";
+   148→      } else {
+   149→        deltaSub = "Same as yesterday";
+   150→      }
+   151→    }
+   152→  }
+   153→
+   154→  return (
+   155→    <>
+   156→      <StatCard
+   157→        icon={<Flame className="h-4 w-4" aria-hidden />}
+   158→        tone="rose"
+   159→        label="Total Intake"
+   160→        value={formatKcal(kcal)}
+   161→        sub={deltaSub}
+   162→        subTone={deltaTone}
+   163→        extra={<Sparkline data={week.days.map((d) => d.calories)} tone="rose" />}
+   164→      />
+   165→      <StatCard
+   166→        icon={<Target className="h-4 w-4" aria-hidden />}
+   167→        tone="emerald"
+   168→        label="Daily Target"
+   169→        value={formatKcal(target)}
+   170→        progress={target > 0 ? kcal / target : 0}
+   171→        sub={`${pct(kcal, target)}% achieved`}
+   172→      />
+   173→      <StatCard
+   174→        icon={<Leaf className="h-4 w-4" aria-hidden />}
+   175→        tone="teal"
+   176→        label="Meals Logged"
+   177→        value={`${mealsLogged} / 5`}
+   178→        extra={
+   179→          <span className="flex items-center gap-1" role="img" aria-label={`${mealsLogged} of 5 meal slots logged today`}>
+   180→            {Array.from({ length: 5 }).map((_, i) => (
+   181→              <span key={i} aria-hidden className={cn("h-2.5 w-2.5 rounded-full", i < mealsLogged ? "bg-primary" : "bg-primary/20")} />
+   182→            ))}
+   183→          </span>
+   184→        }
+   185→      />
+   186→      <StatCard
+   187→        icon={<Sparkles className="h-4 w-4" aria-hidden />}
+   188→        tone="amber"
+   189→        label="Streak"
+   190→        value={`${week.streak} ${week.streak === 1 ? "day" : "days"}`}
+   191→        sub="Keep it going!"
+   192→      />
+   193→    </>
+   194→  );
+   195→}
+   196→
+   197→/** Skeleton shell mirroring StatCard while the summaries load. */
+   198→function HeroStatSkeletons() {
+   199→  return (
+   200→    <>
+   201→      <span className="sr-only">Loading meal stats…</span>
+   202→      {[0, 1, 2, 3].map((i) => (
+   203→        <Card key={i} className="rounded-2xl border-primary/10 bg-card/90 p-4 shadow-sm backdrop-blur-sm" aria-busy="true">
+   204→          <div className="flex items-center gap-3" aria-hidden>
+   205→            <Skeleton className="h-10 w-10 shrink-0 rounded-full" />
+   206→            <span className="block min-w-0 space-y-2">
+   207→              <Skeleton className="block h-3 w-16" />
+   208→              <Skeleton className="block h-5 w-24" />
+   209→            </span>
+   210→          </div>
+   211→        </Card>
+   212→      ))}
+   213→    </>
+   214→  );
+   215→}
+   216→
+   217→/* ------------------------------------------------------------------ */
+   218→/* Timeline pieces                                                     */
+   219→/* ------------------------------------------------------------------ */
+   220→
+   221→/** P/C/F macro chips with tiny colour-coded dots + grams from meal totals. */
+   222→function MacroChips({ totals }: { totals: MealDetail["totals"] }) {
+   223→  const macros = [
+   224→    { k: "P", v: totals.protein, dot: "bg-emerald-500" },
+   225→    { k: "C", v: totals.carbohydrates, dot: "bg-sky-500" },
+   226→    { k: "F", v: totals.fat, dot: "bg-orange-500" },
+   227→  ];
+   228→  return (
+   229→    <span className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+   230→      {macros.map((m) => (
+   231→        <span key={m.k} className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+   232→          <span aria-hidden className={cn("h-1.5 w-1.5 rounded-full", m.dot)} />
+   233→          <span className="font-semibold text-foreground/80">{m.k}</span>
+   234→          <span className="tabular-nums">{formatGrams(m.v)}</span>
+   235→        </span>
+   236→      ))}
+   237→    </span>
+   238→  );
+   239→}
+   240→
+   241→function TimelineMealCard({
+   242→  meal,
+   243→  expanded,
+   244→  onToggle,
+   245→}: {
+   246→  meal: MealDetail;
+   247→  expanded: boolean;
+   248→  onToggle: () => void;
+   249→}) {
+   250→  const detailId = `meal-detail-${meal.id}`;
+   251→  const firstFoods = meal.foods.slice(0, 2).map((f) => f.name).join(", ");
+   252→  const moreCount = meal.foods.length - 2;
+   253→  const foodLine =
+   254→    meal.foods.length === 0 ? "No food lines recorded" : `${firstFoods}${moreCount > 0 ? ` +${moreCount} more` : ""}`;
+   255→
+   256→  return (
+   257→    <Card className="gap-0 overflow-hidden rounded-2xl border-primary/10 py-0 shadow-sm">
+   258→      <button
+   259→        type="button"
+   260→        onClick={onToggle}
+   261→        aria-expanded={expanded}
+   262→        aria-controls={detailId}
+   263→        className="flex w-full items-center gap-3 p-3 text-left transition-colors hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:p-4"
+   264→      >
+   265→        <img
+   266→          src={mealImageFor(meal.foods[0]?.name, meal.mealType)}
+   267→          alt=""
+   268→          aria-hidden
+   269→          className="h-16 w-16 shrink-0 rounded-xl object-cover"
+   270→        />
+   271→        <span className="min-w-0 flex-1">
+   272→          <span className="flex min-w-0 flex-wrap items-center gap-1.5">
+   273→            <span className="text-sm font-semibold">{mealLabel(meal.mealType)}</span>
+   274→            <SourceBadge meal={meal} />
+   275→          </span>
+   276→          <span className="mt-0.5 block truncate text-xs text-muted-foreground">{foodLine}</span>
+   277→          <MacroChips totals={meal.totals} />
+   278→        </span>
+   279→        <span className="flex shrink-0 items-center gap-0.5">
+   280→          <span className="text-sm font-bold tabular-nums">{formatKcal(meal.totals.calories)}</span>
+   281→          <ChevronRight
+   282→            aria-hidden
+   283→            className={cn("h-4 w-4 text-muted-foreground transition-transform duration-200", expanded && "rotate-90")}
+   284→          />
+   285→        </span>
+   286→      </button>
+   287→
+   288→      {expanded && (
+   289→        <div id={detailId} className="border-t border-primary/10 bg-primary/[0.03] px-3 py-3 sm:px-4 dark:bg-primary/[0.05]">
+   290→          <div className="space-y-1.5">
+   291→            {meal.foods.map((f) => (
+   292→              <div key={f.id} className="flex items-center gap-2 text-xs">
+   293→                <span className="min-w-0 flex-1 truncate">
+   294→                  <span className="font-medium">{f.name}</span>
+   295→                  <span className="text-muted-foreground">
+   296→                    {" "}
+   297→                    · {f.quantity} {f.unit}
+   298→                    {f.preparation ? `, ${f.preparation}` : ""}
+   299→                  </span>
+   300→                </span>
+   301→                <span className="shrink-0 font-semibold tabular-nums">{formatKcal(f.nutrition.calories)}</span>
+   302→              </div>
+   303→            ))}
+   304→            {meal.foods.length === 0 && (
+   305→              <p className="text-xs text-muted-foreground">No food lines recorded for this meal.</p>
+   306→            )}
+   307→          </div>
+   308→          <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-primary/10 pt-2 text-[11px] text-muted-foreground">
+   309→            <span className="font-semibold text-foreground">Totals</span>
+   310→            <span className="tabular-nums">{formatKcal(meal.totals.calories)}</span>
+   311→            <span className="tabular-nums">P {formatGrams(meal.totals.protein)}</span>
+   312→            <span className="tabular-nums">C {formatGrams(meal.totals.carbohydrates)}</span>
+   313→            <span className="tabular-nums">F {formatGrams(meal.totals.fat)}</span>
+   314→            <span className="tabular-nums">Fiber {formatGrams(meal.totals.fiber)}</span>
+   315→          </div>
+   316→          {meal.userNotes && <p className="mt-2 text-xs italic text-muted-foreground">“{meal.userNotes}”</p>}
+   317→        </div>
+   318→      )}
+   319→    </Card>
+   320→  );
+   321→}
+   322→
+   323→function TimelineSkeleton() {
+   324→  return (
+   325→    <div className="space-y-4" aria-busy="true">
+   326→      <span className="sr-only">Loading meals…</span>
+   327→      {[0, 1, 2].map((i) => (
+   328→        <div key={i} className="flex gap-3 sm:gap-4" aria-hidden>
+   329→          <div className="flex w-16 shrink-0 flex-col items-center gap-1.5">
+   330→            <Skeleton className="h-3 w-12" />
+   331→            <Skeleton className="h-9 w-9 rounded-full" />
+   332→          </div>
+   333→          <Skeleton className="min-w-0 flex-1 rounded-2xl" style={{ height: 104 }} />
+   334→        </div>
+   335→      ))}
+   336→    </div>
+   337→  );
+   338→}
+   339→
+   340→function TimelineEmpty({ onLog }: { onLog: () => void }) {
+   341→  return (
+   342→    <div className="rounded-2xl border border-dashed border-primary/25 bg-primary/5 p-6 text-center">
+   343→      <UtensilsCrossed className="mx-auto h-6 w-6 text-primary/60" aria-hidden />
+   344→      <p className="mt-2 text-sm font-medium">No meals logged for this day yet.</p>
+   345→      <p className="mt-0.5 text-xs text-muted-foreground">Log your first meal and it appears on the timeline.</p>
+   346→      <Button
+   347→        variant="outline"
+   348→        size="sm"
+   349→        onClick={onLog}
+   350→        className="mt-3 min-h-11 gap-1.5 rounded-xl border-primary/30 bg-background/60 px-4 text-primary hover:bg-primary/10"
+   351→      >
+   352→        <Plus className="h-4 w-4" aria-hidden /> Log a meal
+   353→      </Button>
+   354→    </div>
+   355→  );
+   356→}
+   357→
+   358→/* ------------------------------------------------------------------ */
+   359→/* Nutrient rings                                                      */
+   360→/* ------------------------------------------------------------------ */
+   361→
+   362→function NutrientRing({
+   363→  label,
+   364→  consumed,
+   365→  target,
+   366→  tone,
+   367→}: {
+   368→  label: string;
+   369→  consumed: number;
+   370→  target: number;
+   371→  tone: Tone;
+   372→}) {
+   373→  return (
+   374→    <div className="flex min-w-0 flex-col items-center gap-1">
+   375→      <Donut value={consumed} max={target} tone={tone} size={86} stroke={9} className="shrink-0">
+   376→        <span className="text-sm font-bold tabular-nums text-foreground">{pct(consumed, target)}%</span>
+   377→      </Donut>
+   378→      <span className="text-xs font-semibold">{label}</span>
+   379→      <span className="text-[11px] tabular-nums text-muted-foreground">
+   380→        {Math.round(consumed)} / {Math.round(target)} g
+   381→      </span>
+   382→    </div>
+   383→  );
+   384→}
+   385→
+   386→const NUTRIENT_RINGS: { label: string; key: "protein" | "carbohydrates" | "fat" | "fiber"; tone: Tone }[] = [
+   387→  { label: "Protein", key: "protein", tone: "emerald" },
+   388→  { label: "Carbs", key: "carbohydrates", tone: "blue" },
+   389→  { label: "Fat", key: "fat", tone: "orange" },
+   390→  { label: "Fiber", key: "fiber", tone: "purple" },
+   391→];
+   392→
+   393→/* ------------------------------------------------------------------ */
+   394→/* Main view                                                           */
+   395→/* ------------------------------------------------------------------ */
+   396→
+   397→type PeriodTab = "today" | "week" | "month";
+   398→
+   399→export function MealsView() {
+   400→  const dataVersion = useNutriStore((s) => s.dataVersion);
+   401→  const setView = useNutriStore((s) => s.setView);
+   402→  const bumpData = useNutriStore((s) => s.bumpData);
+   403→  const { toast } = useToast();
+   404→
+   405→  const TODAY = todayKey();
+   406→  const MIN_DATE = shiftDayKey(TODAY, -365);
+   407→
+   408→  const [tab, setTab] = useState<PeriodTab>("today");
+   409→  const [selectedDate, setSelectedDate] = useState<string>(TODAY);
+   410→  const [hero, setHero] = useState<HeroData | null>(null);
+   411→  const [heroFailed, setHeroFailed] = useState(false);
+   412→  const [day, setDay] = useState<{ date: string; summary: DailySummaryResponse | null } | null>(null);
+   413→  const [recent, setRecent] = useState<MealDetail[] | null>(null);
+   414→  const [recentFailed, setRecentFailed] = useState(false);
+   415→  const [expandedId, setExpandedId] = useState<string | null>(null);
+   416→  const [waterBusy, setWaterBusy] = useState(false);
+   417→
+   418→  // Hero stats + the selected day's timeline, in parallel. Re-fetched on
+   419→  // every dataVersion bump (meal edits/deletes) and day change. Failure is
+   420→  // silent (console.warn) — the hero renders without stats, sections stay up.
+   421→  useEffect(() => {
+   422→    let alive = true;
+   423→    const tKey = todayKey();
+   424→    Promise.all([
+   425→      api.dailySummary(tKey),
+   426→      api.dailySummary(shiftDayKey(tKey, -1)),
+   427→      api.weeklySummary(),
+   428→      selectedDate === tKey ? Promise.resolve(null) : api.dailySummary(selectedDate),
+   429→    ])
+   430→      .then(([today, yesterday, week, selected]) => {
+   431→        if (!alive) return;
+   432→        setHero({ today, yesterday, week });
+   433→        setHeroFailed(false);
+   434→        setDay({ date: selectedDate, summary: selected ?? today });
+   435→      })
+   436→      .catch((err) => {
+   437→        console.warn("[meals] summaries unavailable:", err);
+   438→        if (!alive) return;
+   439→        setHeroFailed(true);
+   440→        setDay((prev) => (prev && prev.date === selectedDate ? prev : { date: selectedDate, summary: null }));
+   441→      });
+   442→    return () => {
+   443→      alive = false;
+   444→    };
+   445→  }, [dataVersion, selectedDate]);
+   446→
+   447→  // Recent meals for the bottom strip (independent — failures don't take
+   448→  // the rest of the view down).
+   449→  useEffect(() => {
+   450→    let alive = true;
+   451→    api
+   452→      .recentMeals()
+   453→      .then((res) => {
+   454→        if (!alive) return;
+   455→        setRecent(res.meals.slice(0, 4));
+   456→        setRecentFailed(false);
+   457→      })
+   458→      .catch((err) => {
+   459→        console.warn("[meals] recent meals unavailable:", err);
+   460→        if (!alive) return;
+   461→        setRecentFailed(true);
+   462→      });
+   463→    return () => {
+   464→      alive = false;
+   465→    };
+   466→  }, [dataVersion]);
+   467→
+   468→  function shiftDate(days: number) {
+   469→    setSelectedDate((prev) => shiftDayKey(prev, days));
+   470→  }
+   471→
+   472→  async function quickAddWater() {
+   473→    if (waterBusy) return;
+   474→    setWaterBusy(true);
+   475→    try {
+   476→      await api.hydrationUpdate({ delta: 1 });
+   477→      bumpData();
+   478→      toast({ title: "+1 glass logged", description: "Your water intake was updated." });
+   479→    } catch {
+   480→      toast({ title: "Could not log water", description: "Please try again in a moment.", variant: "destructive" });
+   481→    } finally {
+   482→      setWaterBusy(false);
+   483→    }
+   484→  }
+   485→
+   486→  // Timeline data for the selected day: undefined = still loading, null = failed.
+   487→  const activeDay = day && day.date === selectedDate ? day.summary : undefined;
+   488→  const meals = activeDay?.meals ?? [];
+   489→
+   490→  const quickAdds: { emoji: string; label: string; aria: string; onClick: () => void; disabled?: boolean }[] = [
+   491→    { emoji: "💧", label: "Water", aria: "Quick add a glass of water", onClick: quickAddWater, disabled: waterBusy },
+   492→    { emoji: "🍎", label: "Fruits", aria: "Log fruits in the food logger", onClick: () => setView("log") },
+   493→    { emoji: "🥜", label: "Snacks", aria: "Log snacks in the food logger", onClick: () => setView("log") },
+   494→    { emoji: "➕", label: "Custom", aria: "Log a custom meal in the food logger", onClick: () => setView("log") },
+   495→  ];
+   496→
+   497→  return (
+   498→    <div className="space-y-5">
+   499→      {/* ---------------- HERO ---------------- */}
+   500→      <FadeIn>
+   501→        <ViewHero
+   502→          title={<>Meals</>}
+   503→          subtitle="Track, manage and get insights from your daily meals."
+   504→          script={
+   505→            <>
+   506→              Healthy
+   507→              <br />
+   508→              Meals
+   509→              <br />
+   510→              Happier You <Heart className="inline h-4 w-4 fill-primary" aria-hidden />
+   511→            </>
+   512→          }
+   513→          image="/images/hero-bowl.png"
+   514→          stats={hero ? <MealsHeroStats hero={hero} /> : heroFailed ? undefined : <HeroStatSkeletons />}
+   515→        />
+   516→      </FadeIn>
+   517→
+   518→      <div className="grid min-w-0 gap-5 lg:grid-cols-[1fr_340px]">
+   519→        {/* ---------------- LEFT COLUMN ---------------- */}
+   520→        <div className="min-w-0 space-y-5">
+   521→          <FadeIn delay={0.05} className="min-w-0">
+   522→            <Card className="min-w-0 rounded-3xl border-primary/15 shadow-sm">
+   523→              <CardContent className="p-4 sm:p-5">
+   524→                <Tabs
+   525→                  value={tab}
+   526→                  onValueChange={(v) => setTab(v as PeriodTab)}
+   527→                  aria-label="Meals periods"
+   528→                  className="min-w-0 gap-4"
+   529→                >
+   530→                  <div className="flex flex-wrap items-center justify-between gap-3">
+   531→                    <TabsList aria-label="Choose period">
+   532→                      <TabsTrigger value="today">Today</TabsTrigger>
+   533→                      <TabsTrigger value="week">This Week</TabsTrigger>
+   534→                      <TabsTrigger value="month">This Month</TabsTrigger>
+   535→                    </TabsList>
+   536→
+   537→                    {/* Day navigator — never into the future */}
+   538→                    <div
+   539→                      role="group"
+   540→                      aria-label="Selected day"
+   541→                      className="flex items-center gap-0.5 rounded-xl border border-primary/15 bg-background/60 px-1.5 py-1"
+   542→                    >
+   543→                      <CalendarDays className="mx-1 h-4 w-4 shrink-0 text-primary" aria-hidden />
+   544→                      <span className="min-w-[6.75rem] text-center text-xs font-semibold tabular-nums">
+   545→                        {format(parseISO(`${selectedDate}T12:00:00`), "EEE d MMM yyyy")}
+   546→                      </span>
+   547→                      {selectedDate === TODAY && (
+   548→                        <Badge variant="secondary" className="rounded-full bg-primary/10 px-2 py-0 text-[10px] font-semibold text-primary">
+   549→                          Today
+   550→                        </Badge>
+   551→                      )}
+   552→                      <button
+   553→                        type="button"
+   554→                        onClick={() => shiftDate(-1)}
+   555→                        disabled={selectedDate <= MIN_DATE}
+   556→                        aria-label="Previous day"
+   557→                        className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-40"
+   558→                      >
+   559→                        <ChevronLeft className="h-4 w-4" aria-hidden />
+   560→                      </button>
+   561→                      <button
+   562→                        type="button"
+   563→                        onClick={() => shiftDate(1)}
+   564→                        disabled={selectedDate >= TODAY}
+   565→                        aria-label="Next day"
+   566→                        className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-40"
+   567→                      >
+   568→                        <ChevronRight className="h-4 w-4" aria-hidden />
+   569→                      </button>
+   570→                    </div>
+   571→                  </div>
+   572→
+   573→                  {/* TODAY — meal timeline */}
+   574→                  <TabsContent value="today" className="min-w-0">
+   575→                    {activeDay === undefined ? (
+   576→                      <TimelineSkeleton />
+   577→                    ) : activeDay === null ? (
+   578→                      <p className="rounded-2xl border border-dashed border-primary/25 bg-primary/5 p-4 text-sm text-muted-foreground">
+   579→                        Couldn&apos;t load meals for this day — your data is safe, try again shortly.
+   580→                      </p>
+   581→                    ) : meals.length === 0 ? (
+   582→                      <TimelineEmpty onLog={() => setView("log")} />
+   583→                    ) : (
+   584→                      <ol className="min-w-0">
+   585→                        {meals.map((meal, idx) => {
+   586→                          const isLast = idx === meals.length - 1;
+   587→                          const slot = slotMeta(meal.mealType);
+   588→                          return (
+   589→                            <li key={meal.id} className="flex gap-3 sm:gap-4">
+   590→                              {/* time rail with connector line */}
+   591→                              <div className="flex w-16 shrink-0 flex-col items-center">
+   592→                                <span
+   593→                                  className="text-[10px] font-bold tabular-nums text-muted-foreground"
+   594→                                  title={slot.title}
+   595→                                >
+   596→                                  {timeLabel(meal.eatenAt)}
+   597→                                </span>
+   598→                                <span
+   599→                                  aria-hidden
+   600→                                  className={cn(
+   601→                                    "mt-1 flex h-9 w-9 items-center justify-center rounded-full",
+   602→                                    slot.chip,
+   603→                                  )}
+   604→                                >
+   605→                                  {slot.icon}
+   606→                                </span>
+   607→                                {!isLast && <span aria-hidden className="my-1 w-px flex-1 bg-primary/20" />}
+   608→                              </div>
+   609→                              <div className={cn("min-w-0 flex-1", !isLast && "pb-4")}>
+   610→                                <TimelineMealCard
+   611→                                  meal={meal}
+   612→                                  expanded={expandedId === meal.id}
+   613→                                  onToggle={() => setExpandedId((prev) => (prev === meal.id ? null : meal.id))}
+   614→                                />
+   615→                              </div>
+   616→                            </li>
+   617→                          );
+   618→                        })}
+   619→                      </ol>
+   620→                    )}
+   621→                  </TabsContent>
+   622→
+   623→                  {/* THIS WEEK — activity calendar + note */}
+   624→                  <TabsContent value="week" className="min-w-0">
+   625→                    <div className="space-y-3">
+   626→                      <FadeIn className="min-w-0">
+   627→                        <ActivityCalendar />
+   628→                      </FadeIn>
+   629→                      <p className="text-xs leading-relaxed text-muted-foreground">
+   630→                        Tip: click any square to open that day&apos;s meals — the “Log a meal for this day” action
+   631→                        inside backfills missed days, and the server recomputes every number.
+   632→                      </p>
+   633→                    </div>
+   634→                  </TabsContent>
+   635→
+   636→                  {/* THIS MONTH — calendar + full meal history */}
+   637→                  <TabsContent value="month" className="min-w-0">
+   638→                    <div className="space-y-4">
+   639→                      <FadeIn delay={0.05} className="min-w-0">
+   640→                        <ActivityCalendar />
+   641→                      </FadeIn>
+   642→                      <FadeIn delay={0.1} className="min-w-0">
+   643→                        <RecentMeals />
+   644→                      </FadeIn>
+   645→                    </div>
+   646→                  </TabsContent>
+   647→                </Tabs>
+   648→              </CardContent>
+   649→            </Card>
+   650→          </FadeIn>
+   651→
+   652→          {/* Bottom action row */}
+   653→          <FadeIn delay={0.1}>
+   654→            <div className="flex flex-wrap gap-2.5">
+   655→              <Button
+   656→                variant="outline"
+   657→                onClick={() => setView("log")}
+   658→                className="min-h-11 flex-1 gap-1.5 rounded-xl border-primary/25 bg-background/60 hover:bg-primary/5 sm:flex-none sm:px-5"
+   659→              >
+   660→                <Plus className="h-4 w-4" aria-hidden /> Add Meal
+   661→              </Button>
+   662→              <Button
+   663→                variant="outline"
+   664→                onClick={() => setView("log")}
+   665→                className="min-h-11 flex-1 gap-1.5 rounded-xl border-primary/25 bg-background/60 hover:bg-primary/5 sm:flex-none sm:px-5"
+   666→              >
+   667→                <Camera className="h-4 w-4" aria-hidden /> Scan Food
+   668→              </Button>
+   669→              <Button
+   670→                variant="outline"
+   671→                onClick={() => setView("log")}
+   672→                className="min-h-11 flex-1 gap-1.5 rounded-xl border-primary/25 bg-background/60 hover:bg-primary/5 sm:flex-none sm:px-5"
+   673→              >
+   674→                <UtensilsCrossed className="h-4 w-4" aria-hidden /> Quick Add
+   675→              </Button>
+   676→            </div>
+   677→          </FadeIn>
+   678→        </div>
+   679→
+   680→        {/* ---------------- RIGHT RAIL ---------------- */}
+   681→        <div className="min-w-0 space-y-5">
+   682→          {/* Log a Meal */}
+   683→          <FadeIn delay={0.15} className="min-w-0">
+   684→            <Card className="rounded-3xl border-primary/15 shadow-sm">
+   685→              <CardHeader className="pb-2">
+   686→                <div className="flex items-start gap-3">
+   687→                  <span
+   688→                    aria-hidden
+   689→                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary"
+   690→                  >
+   691→                    <Camera className="h-5 w-5" />
+   692→                  </span>
+   693→                  <div className="min-w-0">
+   694→                    <CardTitle className="text-base">Log a Meal</CardTitle>
+   695→                    <CardDescription className="mt-1">
+   696→                      Take a photo, describe, or choose from your recent meals.
+   697→                    </CardDescription>
+   698→                  </div>
+   699→                </div>
+   700→              </CardHeader>
+   701→              <CardContent className="pt-0">
+   702→                <Button
+   703→                  onClick={() => setView("log")}
+   704→                  className="min-h-11 w-full gap-1.5 rounded-xl text-sm font-semibold"
+   705→                >
+   706→                  Log Food <ArrowRight className="h-4 w-4" aria-hidden />
+   707→                </Button>
+   708→              </CardContent>
+   709→            </Card>
+   710→          </FadeIn>
+   711→
+   712→          {/* Quick Add */}
+   713→          <FadeIn delay={0.2} className="min-w-0">
+   714→            <Card className="rounded-3xl border-primary/15 shadow-sm">
+   715→              <CardHeader className="pb-3">
+   716→                <CardTitle className="flex items-center gap-2 text-base">
+   717→                  <span
+   718→                    aria-hidden
+   719→                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-teal-500/15 text-teal-600 dark:text-teal-400"
+   720→                  >
+   721→                    <UtensilsCrossed className="h-4 w-4" />
+   722→                  </span>
+   723→                  Quick Add
+   724→                </CardTitle>
+   725→                <CardDescription>Water logs instantly — the rest opens the food logger.</CardDescription>
+   726→              </CardHeader>
+   727→              <CardContent>
+   728→                <div className="grid grid-cols-4 gap-2">
+   729→                  {quickAdds.map((q) => (
+   730→                    <button
+   731→                      key={q.label}
+   732→                      type="button"
+   733→                      onClick={q.onClick}
+   734→                      disabled={q.disabled}
+   735→                      aria-label={q.aria}
+   736→                      className="flex min-h-11 flex-col items-center justify-center gap-0.5 rounded-xl border border-primary/15 bg-background/60 px-1 py-2 text-[11px] font-medium text-foreground transition-all hover:border-primary/30 hover:bg-primary/5 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
+   737→                    >
+   738→                      <span aria-hidden className="text-lg leading-none">
+   739→                        {q.emoji}
+   740→                      </span>
+   741→                      <span>{q.label}</span>
+   742→                    </button>
+   743→                  ))}
+   744→                </div>
+   745→              </CardContent>
+   746→            </Card>
+   747→          </FadeIn>
+   748→
+   749→          {/* Today's Nutrients */}
+   750→          <FadeIn delay={0.25} className="min-w-0">
+   751→            <Card className="rounded-3xl border-primary/15 shadow-sm">
+   752→              <CardHeader className="pb-2">
+   753→                <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+   754→                  <CardTitle className="flex min-w-0 items-center gap-2 text-base">
+   755→                    <span
+   756→                      aria-hidden
+   757→                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+   758→                    >
+   759→                      <Wheat className="h-4 w-4" />
+   760→                    </span>
+   761→                    Today&apos;s Nutrients
+   762→                  </CardTitle>
+   763→                  <Button
+   764→                    variant="ghost"
+   765→                    size="sm"
+   766→                    className="h-8 gap-1 px-2 text-xs text-primary"
+   767→                    onClick={() => setView("insights")}
+   768→                  >
+   769→                    Details <ArrowRight className="h-3 w-3" aria-hidden />
+   770→                  </Button>
+   771→                </div>
+   772→                <CardDescription>Share of your daily target consumed so far.</CardDescription>
+   773→              </CardHeader>
+   774→              <CardContent>
+   775→                {hero ? (
+   776→                  <div className="grid grid-cols-2 gap-4">
+   777→                    {NUTRIENT_RINGS.map((r) => (
+   778→                      <NutrientRing
+   779→                        key={r.label}
+   780→                        label={r.label}
+   781→                        consumed={hero.today.consumed[r.key]}
+   782→                        target={hero.today.targets[r.key]}
+   783→                        tone={r.tone}
+   784→                      />
+   785→                    ))}
+   786→                  </div>
+   787→                ) : heroFailed ? (
+   788→                  <p className="rounded-xl border border-dashed border-primary/25 bg-primary/5 p-4 text-sm text-muted-foreground">
+   789→                    Nutrient rings are unavailable right now — they&apos;ll return with your next sync.
+   790→                  </p>
+   791→                ) : (
+   792→                  <div className="grid grid-cols-2 gap-4" aria-busy="true">
+   793→                    <span className="sr-only">Loading today&apos;s nutrients…</span>
+   794→                    {NUTRIENT_RINGS.map((r) => (
+   795→                      <div key={r.label} className="flex flex-col items-center gap-2" aria-hidden>
+   796→                        <Skeleton className="h-[86px] w-[86px] rounded-full" />
+   797→                        <Skeleton className="h-3 w-14" />
+   798→                        <Skeleton className="h-3 w-16" />
+   799→                      </div>
+   800→                    ))}
+   801→                  </div>
+   802→                )}
+   803→              </CardContent>
+   804→            </Card>
+   805→          </FadeIn>
+   806→
+   807→          {/* Quote */}
+   808→          <FadeIn delay={0.3} className="min-w-0">
+   809→            <div className="relative min-w-0 overflow-hidden rounded-3xl border border-primary/15 bg-gradient-to-br from-primary/10 to-teal-500/5 p-5">
+   810→              <img
+   811→                src="/images/hero-leaves.png"
+   812→                alt=""
+   813→                aria-hidden
+   814→                className="pointer-events-none absolute inset-y-0 right-0 h-full w-32 object-cover opacity-20 [mask-image:linear-gradient(to_left,black_35%,transparent_100%)] dark:opacity-10"
+   815→              />
+   816→              <div className="relative min-w-0">
+   817→                <p className="font-script text-xl font-semibold leading-snug text-primary sm:text-2xl">
+   818→                  Healthy meals today, a brighter tomorrow.
+   819→                </p>
+   820→                <p className="mt-1 text-[11px] text-muted-foreground">— NutriSLM</p>
+   821→                <button
+   822→                  type="button"
+   823→                  onClick={() => setView("insights")}
+   824→                  aria-label="Open insights"
+   825→                  className="mt-4 flex h-10 w-10 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm transition-transform hover:scale-105 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+   826→                >
+   827→                  <ArrowRight className="h-4 w-4" aria-hidden />
+   828→                </button>
+   829→              </div>
+   830→            </div>
+   831→          </FadeIn>
+   832→        </div>
+   833→      </div>
+   834→
+   835→      {/* ---------------- RECENT MEALS STRIP (full width) ---------------- */}
+   836→      <FadeIn delay={0.35} className="min-w-0">
+   837→        <Card className="min-w-0 rounded-3xl border-primary/15 shadow-sm">
+   838→          <CardHeader className="pb-3">
+   839→            <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+   840→              <CardTitle className="flex min-w-0 items-center gap-2 text-base">
+   841→                <span
+   842→                  aria-hidden
+   843→                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary"
+   844→                >
+   845→                  <History className="h-4 w-4" />
+   846→                </span>
+   847→                Recent Meals
+   848→              </CardTitle>
+   849→              <Button
+   850→                variant="ghost"
+   851→                size="sm"
+   852→                className="h-8 gap-1 px-2 text-xs text-primary"
+   853→                onClick={() => setView("insights")}
+   854→              >
+   855→                View all <ArrowRight className="h-3 w-3" aria-hidden />
+   856→              </Button>
+   857→            </div>
+   858→          </CardHeader>
+   859→          <CardContent>
+   860→            {recent === null && !recentFailed ? (
+   861→              <div className="flex gap-4 overflow-hidden pb-2" aria-busy="true">
+   862→                <span className="sr-only">Loading recent meals…</span>
+   863→                {[0, 1, 2, 3].map((i) => (
+   864→                  <Skeleton key={i} className="h-40 w-[140px] shrink-0 rounded-2xl" aria-hidden />
+   865→                ))}
+   866→              </div>
+   867→            ) : recent !== null && recent.length > 0 ? (
+   868→              <ul className="flex gap-4 overflow-x-auto pb-2">
+   869→                {recent.map((m) => (
+   870→                  <li key={m.id} className="w-[140px] min-w-[140px] shrink-0">
+   871→                    <img
+   872→                      src={mealImageFor(m.foods[0]?.name, m.mealType)}
+   873→                      alt=""
+   874→                      aria-hidden
+   875→                      className="h-24 w-full rounded-xl object-cover"
+   876→                    />
+   877→                    <p className="mt-1.5 truncate text-xs font-semibold">{m.foods[0]?.name ?? mealLabel(m.mealType)}</p>
+   878→                    <p className="text-xs font-bold tabular-nums text-primary">{formatKcal(m.totals.calories)}</p>
+   879→                    <p className="mt-0.5 text-[10px] tabular-nums text-muted-foreground">{dayTimeLabel(m.eatenAt)}</p>
+   880→                  </li>
+   881→                ))}
+   882→              </ul>
+   883→            ) : (
+   884→              <p className="rounded-xl border border-dashed border-primary/25 bg-primary/5 p-4 text-center text-sm text-muted-foreground">
+   885→                {recentFailed ? "Recent meals are unavailable right now." : "No meals logged yet — your history appears here."}
+   886→              </p>
+   887→            )}
+   888→          </CardContent>
+   889→        </Card>
+   890→      </FadeIn>
+   891→    </div>
+   892→  );
+   893→}
+   894→

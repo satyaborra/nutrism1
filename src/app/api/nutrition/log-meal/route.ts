@@ -15,6 +15,7 @@ import { calculateFoodLine, sumNutrition, foodToRef } from "@/lib/nutrition/calc
 import { zeroNutrition, type NutritionValues } from "@/lib/nutrition/types";
 import { safeParseArray } from "@/lib/nutrition/targets";
 import { getProfileFor, mealComplianceSummary } from "@/lib/nutrition/meal-service";
+import { buildTotalsExplanation } from "@/lib/nutrition/xai";
 import { round } from "@/lib/format";
 
 interface LogMealItem {
@@ -23,6 +24,10 @@ interface LogMealItem {
   quantity?: number;
   unit?: string;
   preparation?: string | null;
+  /** XAI provenance (sanitized server-side): AI recognition confidence 0..1. */
+  confidence?: number | null;
+  /** XAI provenance: who set the amount — user | estimated | unknown. */
+  quantitySource?: string;
 }
 
 interface LogMealBody {
@@ -80,6 +85,8 @@ export const POST = withApi("log_meal", async ({ req }: { req: NextRequest }) =>
   const result = await db.$transaction(async (tx) => {
     const lines: PersistLine[] = [];
     let incomplete = false;
+    let anyEstimatedLine = false;
+    let anyConvertedLine = false;
 
     for (const item of foods) {
       const quantity = Number(item.quantity);
@@ -101,13 +108,26 @@ export const POST = withApi("log_meal", async ({ req }: { req: NextRequest }) =>
           foodId: null, displayName: name || "Unknown food", originalName: name || null,
           quantity, unit: item.unit ?? "serving", preparation: item.preparation ?? null,
           confidence: null, quantitySource: "user",
-          nutrition: zeroNutrition(),
+          nutrition: zeroNutrition(), source: null,
         });
         continue;
       }
 
+      // ---- XAI provenance: sanitize the client-provided perception metadata.
+      // These are NOT nutrition values (those are always recomputed here) — they
+      // only record how the line was recognized, for later transparency.
+      const confidence =
+        typeof item.confidence === "number" && item.confidence > 0 && item.confidence <= 1
+          ? round(item.confidence, 2)
+          : null;
+      const quantitySource = ["user", "estimated", "unknown"].includes(String(item.quantitySource))
+        ? String(item.quantitySource)
+        : "user";
+
       const conv = convertQuantity(quantity, item.unit ?? food.servingUnit, food.servingUnit);
       const nutrition = calculateFoodLine(foodToRef(food), conv.quantityInRefs);
+      if (!conv.exact) anyConvertedLine = true;
+      if (quantitySource === "estimated") anyEstimatedLine = true;
       lines.push({
         foodId: food.id,
         displayName: food.canonicalName,
@@ -115,15 +135,30 @@ export const POST = withApi("log_meal", async ({ req }: { req: NextRequest }) =>
         quantity,
         unit: item.unit ?? food.servingUnit,
         preparation: item.preparation ?? null,
-        confidence: null,
-        quantitySource: "user",
+        confidence,
+        quantitySource,
         nutrition,
+        source: food.source,
       });
     }
 
     if (lines.length === 0) throw new AppError("VALIDATION_FAILED", "No valid foods to log.");
 
     const totals = sumNutrition(lines.map((l) => l.nutrition));
+
+    // XAI: deterministic meal-level explanation from the actually-persisted lines.
+    const explanation = buildTotalsExplanation({
+      lines: lines.map((l) => ({
+        displayName: l.displayName,
+        kcal: l.nutrition.calories,
+        matched: l.foodId != null,
+        source: l.source,
+      })),
+      totalsKcal: totals.calories,
+      incomplete,
+      anyConverted: anyConvertedLine,
+      anyEstimated: anyEstimatedLine,
+    });
 
     const meal = await tx.meal.create({
       data: {
@@ -182,7 +217,7 @@ export const POST = withApi("log_meal", async ({ req }: { req: NextRequest }) =>
       },
     });
 
-    return { meal, totals, incomplete };
+    return { meal, totals, incomplete, explanation };
   });
 
   const compliance = await mealComplianceSummary(conditions, result.totals, result.incomplete);
@@ -196,6 +231,7 @@ export const POST = withApi("log_meal", async ({ req }: { req: NextRequest }) =>
     meal: serialize(result.meal),
     totals: result.totals,
     compliance,
+    explanation: result.explanation,
     recommendationInvalidated: true,
   });
 });
@@ -259,6 +295,7 @@ interface PersistLine {
   confidence: number | null;
   quantitySource: string;
   nutrition: NutritionValues;
+  source: string | null;
 }
 
 interface MealWithFoodsShape {

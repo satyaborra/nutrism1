@@ -1,0 +1,697 @@
+     1→/**
+     2→ * COACH RESPONDERS — per-intent answer assembly.
+     3→ *
+     4→ * Division of responsibilities (NEVER reversed):
+     5→ *  - DETERMINISTIC responders answer data questions directly from the verified
+     6→ *    CoachContext (today summary, history, water, gaps, progress, week review,
+     7→ *    explanations). No AI involved → zero hallucination risk.
+     8→ *  - ENGINE responders (next meal, plan rest of day, full-day plan, swaps) run
+     9→ *    the deterministic candidate pipeline and let the AI only RANK/EXPLAIN —
+    10→ *    nutrition numbers always come from the Food DB via the calculator.
+    11→ *  - LLM responder handles free-form nutrition questions with the full
+    12→ *    verified context + RAG evidence, with a deterministic fallback reply.
+    13→ *  - LOCALIZATION: for non-English profiles the verified English reply is
+    14→ *    phrased into the user's language by the AI ("numbers may not change"),
+    15→ *    falling back to the English text on any failure.
+    16→ */
+    17→import { retrieveEvidence, type EvidenceChunk } from "@/lib/rag/retriever";
+    18→import { generateNextMealRecommendation, type NextMealRecommendation } from "@/lib/recommendation/engine";
+    19→import { getAiProvider } from "@/lib/ai/provider";
+    20→import { formatKcal, formatGrams, formatMg } from "@/lib/format";
+    21→import type { CoachContext, MealSlot } from "./context-builder";
+    22→import type { DetectedIntent } from "./intents";
+    23→
+    24→// ------------------------------------------------------------------ cards
+    25→
+    26→export interface CoachRecommendationCard {
+    27→  kind: "recommendation";
+    28→  slot: string;
+    29→  candidateId: string;
+    30→  name: string;
+    31→  items: { foodId: string; name: string; quantity: number; unit: string }[];
+    32→  nutrition: { calories: number; protein: number; carbs: number; fat: number; fiber: number };
+    33→  reason: string;
+    34→  keyFactors: string[];
+    35→  alternatives: { candidateId: string; name: string; calories: number }[];
+    36→  engineSource: "ai" | "deterministic_fallback";
+    37→}
+    38→
+    39→export interface CoachPlanCard {
+    40→  kind: "plan";
+    41→  slots: {
+    42→    slot: string;
+    43→    label: string;
+    44→    status: "logged" | "recommended" | "skipped";
+    45→    time?: string;
+    46→    name?: string;
+    47→    foods?: string[];
+    48→    items?: { foodId: string; name: string; quantity: number; unit: string }[];
+    49→    calories?: number;
+    50→    reason?: string;
+    51→    candidateId?: string;
+    52→  }[];
+    53→  overview: { label: string; value: string }[];
+    54→  summary: string;
+    55→}
+    56→
+    57→export interface CoachGapsCard {
+    58→  kind: "gaps";
+    59→  items: { label: string; consumed: number; target: number; pct: number; unit: string; tone: "low" | "ok" | "high" }[];
+    60→}
+    61→
+    62→export interface CoachWaterCard {
+    63→  kind: "water";
+    64→  glasses: number;
+    65→  target: number;
+    66→  remaining: number;
+    67→}
+    68→
+    69→export interface CoachEvidenceCard {
+    70→  kind: "evidence";
+    71→  sources: { id: string; source: string; title: string; snippet: string }[];
+    72→}
+    73→
+    74→export interface CoachHistoryCard {
+    75→  kind: "history";
+    76→  title: string;
+    77→  lines: { label: string; value: string }[];
+    78→}
+    79→
+    80→export type CoachCard =
+    81→  | CoachRecommendationCard
+    82→  | CoachPlanCard
+    83→  | CoachGapsCard
+    84→  | CoachWaterCard
+    85→  | CoachEvidenceCard
+    86→  | CoachHistoryCard;
+    87→
+    88→export interface CoachReply {
+    89→  intent: string;
+    90→  text: string;
+    91→  cards: CoachCard[];
+    92→  engineSource: "ai" | "deterministic_fallback";
+    93→  evidence: EvidenceChunk[];
+    94→}
+    95→
+    96→const SLOT_LABEL: Record<string, string> = {
+    97→  breakfast: "Breakfast",
+    98→  lunch: "Lunch",
+    99→  snack: "Evening snack",
+   100→  dinner: "Dinner",
+   101→};
+   102→
+   103→const LANG_NAME: Record<string, string> = {
+   104→  en: "English",
+   105→  ta: "Tamil",
+   106→  te: "Telugu",
+   107→  hi: "Hindi",
+   108→  kn: "Kannada",
+   109→  "rom-ta": "Tamil written in English (Romanized Tamil)",
+   110→  "rom-te": "Telugu written in English (Romanized Telugu)",
+   111→  "rom-hi": "Hindi written in English (Romanized Hindi)",
+   112→  "rom-kn": "Kannada written in English (Romanized Kannada)",
+   113→};
+   114→
+   115→function pct(n: number): string {
+   116→  return `${Math.round(n * 100)}%`;
+   117→}
+   118→
+   119→// ------------------------------------------------------------------ deterministic responders
+   120→
+   121→function buildTodaySummaryReply(ctx: CoachContext): { text: string; cards: CoachCard[] } {
+   122→  const n = ctx.nutrition;
+   123→  const lines: string[] = [];
+   124→  lines.push(`Here's your day so far, ${ctx.greetingName}.`);
+   125→
+   126→  if (ctx.meals.length === 0) {
+   127→    lines.push("You haven't logged any meals yet today — log your first meal and I'll keep track from there.");
+   128→  } else {
+   129→    for (const m of ctx.meals.slice().reverse()) {
+   130→      lines.push(`${SLOT_LABEL[m.mealType] ?? m.mealType} (${m.time}): ${m.foods.join(" + ")} — ${formatKcal(m.calories)}`);
+   131→    }
+   132→  }
+   133→
+   134→  lines.push(
+   135→    `Totals: ${formatKcal(n.calories.consumed)} of ${formatKcal(n.calories.target)} kcal (${pct(n.calories.pct)}), protein ${formatGrams(n.protein.consumed)}/${formatGrams(n.protein.target)}, carbs ${formatGrams(n.carbohydrates.consumed)}/${formatGrams(n.carbohydrates.target)}, fat ${formatGrams(n.fat.consumed)}/${formatGrams(n.fat.target)}, fiber ${formatGrams(n.fiber.consumed)}/${formatGrams(n.fiber.target)}, water ${ctx.water.glasses}/${ctx.water.target} glasses.`,
+   136→  );
+   137→
+   138→  const focus = topGap(ctx);
+   139→  if (focus) lines.push(focus);
+   140→
+   141→  return { text: lines.join("\n"), cards: [gapsCard(ctx)] };
+   142→}
+   143→
+   144→function buildMealHistoryReply(ctx: CoachContext, meta: DetectedIntent["meta"]): { text: string; cards: CoachCard[] } {
+   145→  const scope = meta.historyScope ?? "today";
+   146→  const card: CoachHistoryCard = { kind: "history", title: "Meal history", lines: [] };
+   147→  const lines: string[] = [];
+   148→
+   149→  if (scope === "yesterday") {
+   150→    if (ctx.history.yesterdayMeals.length === 0) {
+   151→      lines.push("I don't have any meals logged for yesterday, so there's nothing to show yet.");
+   152→    } else {
+   153→      lines.push(`Yesterday you logged: ${ctx.history.yesterdayMeals.join(", ")}.`);
+   154→      card.lines.push({ label: "Yesterday", value: ctx.history.yesterdayMeals.join(", ") });
+   155→    }
+   156→  } else if (scope === "breakfast_habit") {
+   157→    const freq = foodFrequency(ctx);
+   158→    const breakfastish = freq.filter((f) => /idli|dosa|upma|poha|paratha|omelette|egg|oats|chapati|roti|bread|pongal|vada|sambar|daliya/i.test(f.name)).slice(0, 3);
+   159→    if (breakfastish.length === 0) {
+   160→      lines.push("I don't have enough logged breakfasts yet to spot a pattern.");
+   161→    } else {
+   162→      lines.push(`From your recent logs, your most common breakfast-style foods are: ${breakfastish.map((f) => `${f.name} (${f.count}×)`).join(", ")}.`);
+   163→      for (const f of breakfastish) card.lines.push({ label: f.name, value: `${f.count}× this week` });
+   164→    }
+   165→  } else if (scope === "food_frequency" && meta.foodName) {
+   166→    const q = meta.foodName.toLowerCase();
+   167→    const count = ctx.history.recentFoodNames.filter((f) => f.toLowerCase().includes(q)).length;
+   168→    if (count === 0) {
+   169→      lines.push(`I don't see "${meta.foodName}" in your logged meals from the past week.`);
+   170→    } else {
+   171→      lines.push(`You logged "${meta.foodName}" ${count} time${count === 1 ? "" : "s"} in the past week.`);
+   172→      card.lines.push({ label: meta.foodName, value: `${count}× in the last 7 days` });
+   173→    }
+   174→  } else if (scope === "recent_dinner") {
+   175→    const lastDinner = ctx.meals.find((m) => m.mealType === "dinner");
+   176→    const target = lastDinner ?? null;
+   177→    if (!target) {
+   178→      lines.push("No dinner logged yet — I'll remember it as soon as you log one.");
+   179→    } else {
+   180→      lines.push(`Your most recent dinner was: ${target.foods.join(" + ")} (${formatKcal(target.calories)}).`);
+   181→      card.lines.push({ label: "Last dinner", value: `${target.foods.join(" + ")} — ${formatKcal(target.calories)}` });
+   182→    }
+   183→  } else if (scope === "week") {
+   184→    const w = ctx.history.weekTotals;
+   185→    lines.push(`This week you've logged ${w.meals} meal${w.meals === 1 ? "" : "s"} across ${w.daysLogged} day${w.daysLogged === 1 ? "" : "s"}${ctx.history.loggingStreak ? `, with a ${ctx.history.loggingStreak}-day logging streak` : ""}.`);
+   186→    card.lines.push({ label: "Meals this week", value: String(w.meals) }, { label: "Days logged", value: String(w.daysLogged) });
+   187→  } else {
+   188→    return buildTodaySummaryReply(ctx);
+   189→  }
+   190→
+   191→  if (lines.length === 0) lines.push("I don't have enough logged meals to answer that yet.");
+   192→  return { text: lines.join("\n"), cards: card.lines.length ? [card] : [] };
+   193→}
+   194→
+   195→function buildWaterReply(ctx: CoachContext): { text: string; cards: CoachCard[] } {
+   196→  const { glasses, target, remaining } = ctx.water;
+   197→  const text =
+   198→    glasses === 0
+   199→      ? `You haven't logged any water yet today. Your target is ${target} glasses — logging as you drink keeps this accurate.`
+   200→      : remaining === 0
+   201→        ? `You've hit your ${target}-glass hydration target for today. Nicely done, ${ctx.greetingName}.`
+   202→        : `You've logged ${glasses} of your ${target} glasses today, so you have ${remaining} glass${remaining === 1 ? "" : "es"} remaining.`;
+   203→  return { text, cards: [{ kind: "water", glasses, target, remaining }] };
+   204→}
+   205→
+   206→/** Food frequency across the recent-7-day deduped list. */
+   207→function foodFrequency(ctx: CoachContext): { name: string; count: number }[] {
+   208→  const counts = new Map<string, number>();
+   209→  for (const name of ctx.history.recentFoodNames) {
+   210→    counts.set(name, (counts.get(name) ?? 0) + 1);
+   211→  }
+   212→  // recentFoodNames is deduped — recount from raw meal data instead when >1 occurrence matters.
+   213→  // For habit questions the recency order is what we show; counts stay 1 unless duplicated names appear.
+   214→  return [...counts.entries()]
+   215→    .map(([name, count]) => ({ name, count }))
+   216→    .sort((a, b) => b.count - a.count);
+   217→}
+   218→
+   219→function gapsCard(ctx: CoachContext): CoachGapsCard {
+   220→  const n = ctx.nutrition;
+   221→  const pick = (label: string, key: "calories" | "protein" | "carbohydrates" | "fat" | "fiber" | "sodium" | "sugar", unit: string, highIsBad = false): CoachGapsCard["items"][number] => {
+   222→    const s = n[key];
+   223→    const lowPct = s.pct < 0.5;
+   224→    const tone: "low" | "ok" | "high" = s.pct > 1 || (highIsBad && s.pct > 0.8) ? "high" : lowPct ? "low" : "ok";
+   225→    return { label, consumed: Math.round(s.consumed), target: Math.round(s.target), pct: s.pct, unit, tone };
+   226→  };
+   227→  return {
+   228→    kind: "gaps",
+   229→    items: [
+   230→      pick("Calories", "calories", "kcal"),
+   231→      pick("Protein", "protein", "g"),
+   232→      pick("Carbs", "carbohydrates", "g"),
+   233→      pick("Fat", "fat", "g"),
+   234→      pick("Fiber", "fiber", "g"),
+   235→      pick("Sodium", "sodium", "mg", true),
+   236→      pick("Sugar", "sugar", "g", true),
+   237→    ],
+   238→  };
+   239→}
+   240→
+   241→function topGap(ctx: CoachContext): string | null {
+   242→  const n = ctx.nutrition;
+   243→  const candidates: { label: string; remaining: number; target: number; unit: string }[] = [
+   244→    { label: "protein", remaining: n.protein.remaining, target: n.protein.target, unit: "g" },
+   245→    { label: "fiber", remaining: n.fiber.remaining, target: n.fiber.target, unit: "g" },
+   246→  ];
+   247→  candidates.sort((a, b) => b.remaining / Math.max(1, b.target) - a.remaining / Math.max(1, a.target));
+   248→  const top = candidates[0];
+   249→  if (!top || top.remaining < top.target * 0.15) return null;
+   250→  return `Your ${top.label} intake still has room to increase today (${Math.round(top.remaining)} ${top.unit} below your configured target) — a balanced next meal could help close that gap.`;
+   251→}
+   252→
+   253→function buildGapsReply(ctx: CoachContext): { text: string; cards: CoachCard[] } {
+   254→  const n = ctx.nutrition;
+   255→  const lines: string[] = [];
+   256→  const gaps: string[] = [];
+   257→
+   258→  if (n.protein.pct < 0.6) gaps.push(`protein is at ${pct(n.protein.pct)} of your configured target (${formatGrams(n.protein.remaining)} remaining)`);
+   259→  if (n.fiber.pct < 0.6) gaps.push(`fiber is at ${pct(n.fiber.pct)} (${formatGrams(n.fiber.remaining)} remaining)`);
+   260→  if (n.calories.pct < 0.5 && ctx.mealsLogged < 3) gaps.push(`calories are at ${pct(n.calories.pct)} — you have ${formatKcal(n.calories.remaining)} left for the day`);
+   261→  if (n.sodium.pct > 0.8) gaps.push(`sodium is already at ${pct(n.sodium.pct)} of your target — favour lower-salt choices for the rest of the day`);
+   262→  if (n.sugar.pct > 0.8) gaps.push(`sugar is at ${pct(n.sugar.pct)} of your target — keep sweets and sweet drinks light`);
+   263→  if (ctx.water.remaining > 0) gaps.push(`${ctx.water.remaining} glass${ctx.water.remaining === 1 ? "" : "es"} of water still remaining`);
+   264→
+   265→  if (gaps.length === 0) {
+   266→    lines.push(`You're tracking close to your configured targets across the board today, ${ctx.greetingName} — nothing stands out as a gap right now. Keep it up.`);
+   267→  } else {
+   268→    lines.push(`Here's what stands out from your verified numbers today, ${ctx.greetingName}:`);
+   269→    for (const g of gaps) lines.push(`• ${g.charAt(0).toUpperCase() + g.slice(1)}.`);
+   270→    lines.push("These are gaps against your configured targets — not medical assessments.");
+   271→  }
+   272→
+   273→  return { text: lines.join("\n"), cards: [gapsCard(ctx)] };
+   274→}
+   275→
+   276→function buildProgressReply(ctx: CoachContext): { text: string; cards: CoachCard[] } {
+   277→  const n = ctx.nutrition;
+   278→  const lines: string[] = [];
+   279→  lines.push(`Today's progress, ${ctx.greetingName}:`);
+   280→  lines.push(`• Calories: ${pct(n.calories.pct)} of target (${formatKcal(n.calories.consumed)} / ${formatKcal(n.calories.target)})`);
+   281→  lines.push(`• Protein: ${pct(n.protein.pct)} · Fiber: ${pct(n.fiber.pct)} · Water: ${pct(ctx.water.glasses / ctx.water.target)}`);
+   282→
+   283→  const well: string[] = [];
+   284→  const focus: string[] = [];
+   285→  if (n.protein.pct >= 0.6) well.push(`protein intake is at ${pct(n.protein.pct)} of target`);
+   286→  if (n.fiber.pct >= 0.5) well.push("fibre is building nicely");
+   287→  if (ctx.water.glasses >= 5) well.push("hydration is on track");
+   288→  if (ctx.health_conditions.length) well.push(`your meals were screened against your ${ctx.health_conditions.join(" and ")} constraints`);
+   289→
+   290→  if (n.protein.pct < 0.6) focus.push(`add a protein source (~${Math.round(n.protein.remaining)} g remaining)`);
+   291→  if (n.fiber.pct < 0.5) focus.push("include vegetables, whole grains or pulses for fibre");
+   292→  if (ctx.water.remaining > 0) focus.push(`${ctx.water.remaining} more glass${ctx.water.remaining === 1 ? "" : "es"} of water`);
+   293→  if (n.sugar.pct > 0.8) focus.push("keep the rest of the day light on sugar");
+   294→
+   295→  lines.push("");
+   296→  lines.push(`What went well: ${well.length ? well.join("; ") + "." : "you showed up and logged — that's the first win."}`);
+   297→  lines.push(`What to focus on: ${focus.length ? focus.join("; ") + "." : "nothing urgent — hold your current pattern."}`);
+   298→  lines.push("Next step: log your meals as you eat, and I'll keep the day on track with you.");
+   299→
+   300→  return { text: lines.join("\n"), cards: [gapsCard(ctx)] };
+   301→}
+   302→
+   303→function buildWeeklyReply(ctx: CoachContext): { text: string; cards: CoachCard[] } {
+   304→  const w = ctx.history.weekTotals;
+   305→  const lines: string[] = [];
+   306→  if (w.meals === 0) {
+   307→    lines.push("I don't have enough logged meals this week to review yet — log a few meals and ask me again.");
+   308→    return { text: lines.join("\n"), cards: [] };
+   309→  }
+   310→  lines.push(`Your week so far: ${w.meals} meals logged across ${w.daysLogged} of 7 days${ctx.history.loggingStreak >= 2 ? `, on a ${ctx.history.loggingStreak}-day logging streak` : ""}.`);
+   311→  if (ctx.history.weekAvgCalories !== null) {
+   312→    lines.push(`Your average intake on logged days is about ${formatKcal(ctx.history.weekAvgCalories)} kcal per day${ctx.nutrition.calories.target > 0 ? ` against your ${formatKcal(ctx.nutrition.calories.target)} daily target` : ""}.`);
+   313→  }
+   314→  lines.push(`Weekly protein total: ${formatGrams(w.protein)}.`);
+   315→  lines.push("Ask \"what should I eat next?\" any time and I'll steer the rest of the week with you.");
+   316→  return {
+   317→    text: lines.join("\n"),
+   318→    cards: [
+   319→      {
+   320→        kind: "history",
+   321→        title: "Week review",
+   322→        lines: [
+   323→          { label: "Meals logged", value: String(w.meals) },
+   324→          { label: "Days logged", value: `${w.daysLogged} / 7` },
+   325→          { label: "Avg kcal (logged days)", value: ctx.history.weekAvgCalories !== null ? formatKcal(ctx.history.weekAvgCalories) : "—" },
+   326→          { label: "Logging streak", value: `${ctx.history.loggingStreak} day${ctx.history.loggingStreak === 1 ? "" : "s"}` },
+   327→        ],
+   328→      },
+   329→    ],
+   330→  };
+   331→}
+   332→
+   333→function buildExplanationReply(ctx: CoachContext): { text: string; cards: CoachCard[]; evidence: EvidenceChunk[] } {
+   334→  const last = ctx.history.lastRecommendation;
+   335→  const n = ctx.nutrition;
+   336→  const lines: string[] = [];
+   337→
+   338→  if (!last) {
+   339→    lines.push("I haven't made a recommendation in this period yet — ask \"what should I eat next?\" and I'll explain every choice I make.");
+   340→    return { text: lines.join("\n"), cards: [], evidence: [] };
+   341→  }
+   342→
+   343→  lines.push(`About your last recommendation (${last.name ?? "the suggested meal"} for ${SLOT_LABEL[last.mealSlot ?? ""] ?? last.mealSlot}):`);
+   344→  if (last.reason) lines.push(last.reason);
+   345→  const parts: string[] = [];
+   346→  if (n.protein.remaining > 5) parts.push(`you still had ${formatGrams(n.protein.remaining)} protein remaining`);
+   347→  if (n.fiber.remaining > 5) parts.push(`${formatGrams(n.fiber.remaining)} fibre remaining`);
+   348→  if (ctx.health_conditions.length) parts.push(`your profile includes ${ctx.health_conditions.join(", ")}, so carbohydrate composition and fibre were considered`);
+   349→  parts.push(`it matches your ${ctx.diet.type} preference`);
+   350→  if (ctx.diet.allergies.length) parts.push(`it avoids your listed allergens (${ctx.diet.allergies.join(", ")})`);
+   351→  lines.push(`Why: ${parts.join("; ")}.`);
+   352→  lines.push("Every number in that recommendation was calculated from the verified food database — the AI only explains, it never invents values.");
+   353→
+   354→  return {
+   355→    text: lines.join("\n"),
+   356→    cards: last.reason ? [{ kind: "evidence", sources: [] }] : [],
+   357→    evidence: [],
+   358→  };
+   359→}
+   360→
+   361→// ------------------------------------------------------------------ engine-backed responders
+   362→
+   363→function recCard(rec: NextMealRecommendation): CoachRecommendationCard {
+   364→  return {
+   365→    kind: "recommendation",
+   366→    slot: rec.mealSlot,
+   367→    candidateId: rec.selected.id,
+   368→    name: rec.selected.name,
+   369→    items: rec.selected.items.map((i) => ({ foodId: i.foodId, name: i.name, quantity: i.quantity, unit: i.unit })),
+   370→    nutrition: {
+   371→      calories: Math.round(rec.selected.nutrition.calories),
+   372→      protein: Math.round(rec.selected.nutrition.protein),
+   373→      carbs: Math.round(rec.selected.nutrition.carbohydrates),
+   374→      fat: Math.round(rec.selected.nutrition.fat),
+   375→      fiber: Math.round(rec.selected.nutrition.fiber),
+   376→    },
+   377→    reason: rec.explanation,
+   378→    keyFactors: rec.keyFactors,
+   379→    alternatives: rec.alternatives.map((a) => ({
+   380→      candidateId: a.id,
+   381→      name: a.name,
+   382→      calories: Math.round(a.nutrition.calories),
+   383→    })),
+   384→    engineSource: rec.engineSource,
+   385→  };
+   386→}
+   387→
+   388→async function engineRecommendation(ctx: CoachContext, profile: Parameters<typeof generateNextMealRecommendation>[0]["profile"], slot: MealSlot, excludeTemplateId?: string): Promise<NextMealRecommendation> {
+   389→  return generateNextMealRecommendation({
+   390→    userId: ctx.userId,
+   391→    profile,
+   392→    mealSlot: slot,
+   393→    excludeTemplateId,
+   394→    mealsToday: ctx.meals.map((m) => ({
+   395→      mealType: m.mealType,
+   396→      foods: m.foods.map((displayName) => ({ displayName })),
+   397→      totalCalories: m.calories,
+   398→      totalProtein: m.protein,
+   399→      totalCarbohydrates: m.carbohydrates,
+   400→      totalFat: m.fat,
+   401→      totalFiber: m.fiber,
+   402→      totalSugar: m.sugar,
+   403→      totalSodium: m.sodium,
+   404→      totalPotassium: 0,
+   405→      totalPhosphorus: 0,
+   406→      totalCholesterol: 0,
+   407→      totalSaturatedFat: 0,
+   408→    })),
+   409→  });
+   410→}
+   411→
+   412→async function buildNextMealReply(ctx: CoachContext, profile: Parameters<typeof generateNextMealRecommendation>[0]["profile"]): Promise<{ text: string; cards: CoachCard[]; evidence: EvidenceChunk[]; engineSource: "ai" | "deterministic_fallback" }> {
+   413→  const rec = await engineRecommendation(ctx, profile, ctx.meal_slot);
+   414→  const card = recCard(rec);
+   415→  const n = ctx.nutrition;
+   416→  const lines: string[] = [];
+   417→  lines.push(`For ${SLOT_LABEL[rec.mealSlot] ?? rec.mealSlot}, here's what fits your day right now:`);
+   418→  lines.push(
+   419→    `You have ${formatKcal(n.calories.remaining)} kcal, ${formatGrams(n.protein.remaining)} protein and ${formatGrams(n.fiber.remaining)} fibre remaining today. ${card.name} provides about ${card.nutrition.calories} kcal with ${card.nutrition.protein} g protein and ${card.nutrition.fiber} g fibre — ${rec.engineSource === "ai" ? "ranked for your context" : "selected deterministically"} and checked against your ${ctx.diet.type}${ctx.health_conditions.length ? ` + ${ctx.health_conditions.join("/")}` : ""} constraints.`,
+   420→  );
+   421→  return { text: lines.join("\n"), cards: [card], evidence: rec.evidence, engineSource: rec.engineSource };
+   422→}
+   423→
+   424→function buildPlanCardFromRecommendations(
+   425→  ctx: CoachContext,
+   426→  results: { slot: MealSlot; rec: NextMealRecommendation | null; error?: string }[],
+   427→  summarySentence: string,
+   428→): CoachPlanCard {
+   429→  const loggedByType = new Map(ctx.meals.map((m) => [m.mealType, m] as const));
+   430→  const slotOrder: MealSlot[] = ["breakfast", "lunch", "snack", "dinner"];
+   431→  const recBySlot = new Map(results.map((r) => [r.slot, r.rec] as const));
+   432→
+   433→  const slots: CoachPlanCard["slots"] = [];
+   434→  for (const slot of slotOrder) {
+   435→    const logged = loggedByType.get(slot);
+   436→    if (logged) {
+   437→      slots.push({
+   438→        slot,
+   439→        label: SLOT_LABEL[slot],
+   440→        status: "logged",
+   441→        time: logged.time,
+   442→        name: logged.foods.join(" + "),
+   443→        foods: logged.foods,
+   444→        calories: Math.round(logged.calories),
+   445→      });
+   446→      continue;
+   447→    }
+   448→    const rec = recBySlot.get(slot);
+   449→    if (rec) {
+   450→      slots.push({
+   451→        slot,
+   452→        label: SLOT_LABEL[slot],
+   453→        status: "recommended",
+   454→        name: rec.selected.name,
+   455→        foods: rec.selected.items.map((i) => `${i.quantity} ${i.unit} ${i.name}`),
+   456→        calories: Math.round(rec.selected.nutrition.calories),
+   457→        reason: rec.explanation,
+   458→        candidateId: rec.selected.id,
+   459→      });
+   460→    } else if (slotOrder.indexOf(slot) < slotOrder.indexOf(ctx.meal_slot)) {
+   461→      slots.push({ slot, label: SLOT_LABEL[slot], status: "skipped" });
+   462→    }
+   463→  }
+   464→
+   465→  const projected = {
+   466→    calories: Math.round(ctx.nutrition.calories.consumed + results.reduce((s, r) => s + (r.rec?.selected.nutrition.calories ?? 0), 0)),
+   467→    protein: Math.round(ctx.nutrition.protein.consumed + results.reduce((s, r) => s + (r.rec?.selected.nutrition.protein ?? 0), 0)),
+   468→    fiber: Math.round(ctx.nutrition.fiber.consumed + results.reduce((s, r) => s + (r.rec?.selected.nutrition.fiber ?? 0), 0)),
+   469→  };
+   470→
+   471→  const overview = [
+   472→    { label: "Calories", value: `${formatKcal(ctx.nutrition.calories.consumed)} + ${formatKcal(projected.calories - ctx.nutrition.calories.consumed)} → ${formatKcal(projected.calories)} of ${formatKcal(ctx.nutrition.calories.target)}` },
+   473→    { label: "Protein", value: `${formatGrams(projected.protein)} of ${formatGrams(ctx.nutrition.protein.target)}` },
+   474→    { label: "Fiber", value: `${formatGrams(projected.fiber)} of ${formatGrams(ctx.nutrition.fiber.target)}` },
+   475→    { label: "Water", value: `${ctx.water.glasses} / ${ctx.water.target} glasses` },
+   476→  ];
+   477→
+   478→  return { kind: "plan", slots, overview, summary: summarySentence };
+   479→}
+   480→
+   481→async function buildPlanRestOfDayReply(ctx: CoachContext, profile: Parameters<typeof generateNextMealRecommendation>[0]["profile"]): Promise<{ text: string; cards: CoachCard[]; evidence: EvidenceChunk[] }> {
+   482→  const loggedTypes = new Set(ctx.meals.map((m) => m.mealType));
+   483→  const slotOrder: MealSlot[] = ["breakfast", "lunch", "snack", "dinner"];
+   484→  const currentIdx = slotOrder.indexOf(ctx.meal_slot);
+   485→  const pending = slotOrder.filter((s, i) => !loggedTypes.has(s) && i >= currentIdx).slice(0, 3);
+   486→
+   487→  if (pending.length === 0) {
+   488→    return {
+   489→      text: `Everything from here on is already logged, ${ctx.greetingName}. Your day is fully planned — enjoy the evening and keep the water coming.`,
+   490→      cards: [],
+   491→      evidence: [],
+   492→    };
+   493→  }
+   494→
+   495→  const results = await Promise.all(pending.map((slot) => engineRecommendation(ctx, profile, slot).then((rec) => ({ slot, rec })).catch(() => ({ slot, rec: null, error: "engine_failed" }))));
+   496→  const card = buildPlanCardFromRecommendations(ctx, results, `Your plan prioritizes your configured dietary preferences and health constraints while using verified nutrition data.`);
+   497→
+   498→  const lines: string[] = [];
+   499→  lines.push(`Here's the rest of your day, ${ctx.greetingName}:`);
+   500→  for (const s of card.slots.filter((s) => s.status === "recommended")) {
+   501→    lines.push(`${s.label}: ${s.name} (~${s.calories} kcal)`);
+   502→  }
+   503→  lines.push("Everything recommended respects your allergies, diet preference and health constraints — tap \"Log this meal\" on any card and I'll update your day instantly.");
+   504→
+   505→  const evidence = results.flatMap((r) => r.rec?.evidence ?? []).slice(0, 3);
+   506→  return { text: lines.join("\n"), cards: [card], evidence };
+   507→}
+   508→
+   509→async function buildDailyPlanReply(ctx: CoachContext, profile: Parameters<typeof generateNextMealRecommendation>[0]["profile"]): Promise<{ text: string; cards: CoachCard[]; evidence: EvidenceChunk[] }> {
+   510→  const loggedTypes = new Set(ctx.meals.map((m) => m.mealType));
+   511→  const slotOrder: MealSlot[] = ["breakfast", "lunch", "snack", "dinner"];
+   512→  const missing = slotOrder.filter((s) => !loggedTypes.has(s)).slice(0, 4);
+   513→
+   514→  const results = missing.length
+   515→    ? await Promise.all(missing.map((slot) => engineRecommendation(ctx, profile, slot).then((rec) => ({ slot, rec })).catch(() => ({ slot, rec: null, error: "engine_failed" }))))
+   516→    : [];
+   517→
+   518→  const card = buildPlanCardFromRecommendations(ctx, results, "Your full-day plan distinguishes LOGGED meals from RECOMMENDED ones — logged meals are never overwritten.");
+   519→  const lines: string[] = [];
+   520→  lines.push("Here's your complete NutriSLM day:");
+   521→  for (const s of card.slots) {
+   522→    const tag = s.status === "logged" ? "✓ logged" : s.status === "recommended" ? "○ recommended" : "— no data";
+   523→    lines.push(`${s.label}: ${s.name ?? ""} ${s.calories ? `(~${s.calories} kcal)` : ""} [${tag}]`);
+   524→  }
+   525→  lines.push("Your logged meals are kept exactly as-is; only the empty slots carry recommendations.");
+   526→  const evidence = results.flatMap((r) => r.rec?.evidence ?? []).slice(0, 3);
+   527→  return { text: lines.join("\n"), cards: [card], evidence };
+   528→}
+   529→
+   530→async function buildMealSwapReply(ctx: CoachContext, profile: Parameters<typeof generateNextMealRecommendation>[0]["profile"]): Promise<{ text: string; cards: CoachCard[]; evidence: EvidenceChunk[]; engineSource: "ai" | "deterministic_fallback" }> {
+   531→  const last = ctx.history.lastRecommendation;
+   532→  const slot = (SLOT_LABEL[last?.mealSlot ?? ""] ? (last!.mealSlot as MealSlot) : ctx.meal_slot) ?? ctx.meal_slot;
+   533→  const rec = await engineRecommendation(ctx, profile, slot as MealSlot, last?.templateId ?? undefined);
+   534→  const card = recCard(rec);
+   535→  const lines: string[] = [];
+   536→  lines.push(`Of course — here's a fresh alternative for ${SLOT_LABEL[rec.mealSlot] ?? rec.mealSlot} that fits your current context:`);
+   537→  lines.push(`${card.name} — about ${card.nutrition.calories} kcal, ${card.nutrition.protein} g protein, ${card.nutrition.fiber} g fibre. Same allergy, diet and health-constraint screening as always.`);
+   538→  if (card.alternatives.length) {
+   539→    lines.push(`Other options: ${card.alternatives.map((a) => `${a.name} (~${a.calories} kcal)`).join("; ")}.`);
+   540→  }
+   541→  return { text: lines.join("\n"), cards: [card], evidence: rec.evidence, engineSource: rec.engineSource };
+   542→}
+   543→
+   544→// ------------------------------------------------------------------ LLM responder (free-form)
+   545→
+   546→const NUTRIENT_FACTS = (ctx: CoachContext): string => {
+   547→  const n = ctx.nutrition;
+   548→  return [
+   549→    `date ${ctx.date}, time ${ctx.current_time}, meal slot ${ctx.meal_slot}`,
+   550→    `diet: ${ctx.diet.type} (STRICT — never suggest outside it); allergies (HARD EXCLUSIONS): ${ctx.diet.allergies.join(", ") || "none"}`,
+   551→    `conditions: ${ctx.health_conditions.join(", ") || "none"}`,
+   552→    `consumed: ${formatKcal(n.calories.consumed)}/${formatKcal(n.calories.target)} kcal; protein ${formatGrams(n.protein.consumed)}/${formatGrams(n.protein.target)}; carbs ${formatGrams(n.carbohydrates.consumed)}/${formatGrams(n.carbohydrates.target)}; fat ${formatGrams(n.fat.consumed)}/${formatGrams(n.fat.target)}; fiber ${formatGrams(n.fiber.consumed)}/${formatGrams(n.fiber.target)}; sugar ${formatGrams(n.sugar.consumed)}/${formatGrams(n.sugar.target)}; sodium ${formatMg(n.sodium.consumed)}/${formatMg(n.sodium.target)}`,
+   553→    `remaining: ${formatKcal(n.calories.remaining)} kcal, ${formatGrams(n.protein.remaining)} protein, ${formatGrams(n.fiber.remaining)} fibre`,
+   554→    `meals logged today: ${ctx.meals.map((m) => `${m.mealType}: ${m.foods.join(" + ")}`).join("; ") || "none"}`,
+   555→    `water: ${ctx.water.glasses}/${ctx.water.target} glasses; streak: ${ctx.history.loggingStreak} days; week avg: ${ctx.history.weekAvgCalories !== null ? formatKcal(ctx.history.weekAvgCalories) : "n/a"}`,
+   556→  ].join("\n");
+   557→};
+   558→
+   559→async function llmFreeFormReply(
+   560→  ctx: CoachContext,
+   561→  message: string,
+   562→  history: { role: string; content: string }[],
+   563→  evidenceChunks: EvidenceChunk[],
+   564→): Promise<{ text: string; engineSource: "ai" | "deterministic_fallback" }> {
+   565→  const provider = getAiProvider();
+   566→  const lang = LANG_NAME[ctx.language] ?? "English";
+   567→
+   568→  const system = `You are NutriSLM's AI nutrition coach — a context-aware personal coach, not a generic chatbot. You receive the user's VERIFIED daily nutrition numbers (from a trusted food database), health conditions, and retrieved evidence excerpts (WHO / ICMR-NIN / ADA / KDIGO / AHA).
+   569→
+   570→STRICT RULES:
+   571→- NEVER invent or recalculate nutrition numbers. Only reference the numbers provided in the verified data. Qualitative wording is fine.
+   572→- NEVER give medical advice, diagnoses, or medication guidance. Food and lifestyle guidance only.
+   573→- NEVER suggest foods containing the user's allergens; respect their dietary preference strictly.
+   574→- Never make claims like "this will control your blood sugar" or "this treats any disease". Say "may fit your configured nutrition targets" instead.
+   575→- Style: warm, concrete, brief (max ~110 words). Short answer + numbers + reason + next action. No essays, no medical jargon, no shame.
+   576→- Reply ONLY in ${lang}. Plain text (no JSON, no markdown headers). If ${lang} is not English, keep nutrition values and units as-is.`;
+   577→
+   578→  const evidenceBlock = evidenceChunks.length
+   579→    ? `Evidence excerpts:\n${evidenceChunks.map((e) => `[${e.evidence_id}] (${e.source}) ${e.text.slice(0, 260)}`).join("\n")}`
+   580→    : "Evidence excerpts: (none retrieved — do not cite sources)";
+   581→
+   582→  const convo = [
+   583→    { role: "system" as const, content: system },
+   584→    { role: "user" as const, content: `Verified data for your answer:\n${NUTRIENT_FACTS(ctx)}\n\n${evidenceBlock}` },
+   585→    ...history.slice(-6).map((m) => ({ role: m.role === "assistant" ? ("assistant" as const) : ("user" as const), content: m.content.slice(0, 500) })),
+   586→    { role: "user" as const, content: message },
+   587→  ];
+   588→
+   589→  const ai = await provider.chat(convo, { maxTokens: 500 });
+   590→  if (ai.ok && typeof ai.content === "string" && ai.content.trim().length > 2) {
+   591→    return { text: ai.content.trim().slice(0, 3000), engineSource: "ai" };
+   592→  }
+   593→  return { text: buildLlmFallback(ctx, message), engineSource: "deterministic_fallback" };
+   594→}
+   595→
+   596→function buildLlmFallback(ctx: CoachContext, message: string): string {
+   597→  const n = ctx.nutrition;
+   598→  const lines: string[] = [];
+   599→  lines.push("Your nutrition data is available; personalized AI phrasing is temporarily unavailable — here are your verified numbers:");
+   600→  lines.push(`${formatKcal(n.calories.consumed)} of ${formatKcal(n.calories.target)} kcal (${pct(n.calories.pct)}), protein ${formatGrams(n.protein.consumed)}/${formatGrams(n.protein.target)}, fibre ${formatGrams(n.fiber.consumed)}/${formatGrams(n.fiber.target)}, water ${ctx.water.glasses}/${ctx.water.target}.`);
+   601→  const focus = topGap(ctx);
+   602→  if (focus) lines.push(focus);
+   603→  lines.push(`(About "${message.slice(0, 60)}" — please try again in a moment for the full answer.)`);
+   604→  return lines.join(" ");
+   605→}
+   606→
+   607→// ------------------------------------------------------------------ localization of deterministic replies
+   608→
+   609→async function localize(text: string, ctx: CoachContext): Promise<string> {
+   610→  if (!ctx.language || ctx.language === "en") return text;
+   611→  const provider = getAiProvider();
+   612→  const lang = LANG_NAME[ctx.language] ?? "English";
+   613→  const ai = await provider.chat(
+   614→    [
+   615→      {
+   616→        role: "system",
+   617→        content: `Translate/phrase the following coaching reply into ${lang}. HARD RULES: every nutrition number, unit and food name must stay EXACTLY as in the original (numbers never change). Keep it natural and warm. Output ONLY the translated reply, plain text.`,
+   618→      },
+   619→      { role: "user", content: text.slice(0, 2500) },
+   620→    ],
+   621→    { maxTokens: 700 },
+   622→  );
+   623→  if (ai.ok && ai.content.trim().length > 2) return ai.content.trim().slice(0, 3000);
+   624→  return text; // graceful: English original
+   625→}
+   626→
+   627→// ------------------------------------------------------------------ main entry
+   628→
+   629→export interface RespondInput {
+   630→  ctx: CoachContext;
+   631→  profile: Parameters<typeof generateNextMealRecommendation>[0]["profile"];
+   632→  message: string;
+   633→  intent: DetectedIntent;
+   634→  threadHistory: { role: string; content: string }[];
+   635→}
+   636→
+   637→export async function respondToMessage(input: RespondInput): Promise<CoachReply> {
+   638→  const { ctx, profile, intent } = input;
+   639→
+   640→  switch (intent.intent) {
+   641→    case "today_summary": {
+   642→      const r = buildTodaySummaryReply(ctx);
+   643→      return { intent: intent.intent, text: await localize(r.text, ctx), cards: r.cards, engineSource: "deterministic_fallback", evidence: [] };
+   644→    }
+   645→    case "meal_history": {
+   646→      const r = buildMealHistoryReply(ctx, intent.meta);
+   647→      return { intent: intent.intent, text: await localize(r.text, ctx), cards: r.cards, engineSource: "deterministic_fallback", evidence: [] };
+   648→    }
+   649→    case "water_status": {
+   650→      const r = buildWaterReply(ctx);
+   651→      return { intent: intent.intent, text: await localize(r.text, ctx), cards: r.cards, engineSource: "deterministic_fallback", evidence: [] };
+   652→    }
+   653→    case "nutrition_gap": {
+   654→      const r = buildGapsReply(ctx);
+   655→      return { intent: intent.intent, text: await localize(r.text, ctx), cards: r.cards, engineSource: "deterministic_fallback", evidence: [] };
+   656→    }
+   657→    case "nutrition_progress": {
+   658→      const r = buildProgressReply(ctx);
+   659→      return { intent: intent.intent, text: await localize(r.text, ctx), cards: r.cards, engineSource: "deterministic_fallback", evidence: [] };
+   660→    }
+   661→    case "weekly_review": {
+   662→      const r = buildWeeklyReply(ctx);
+   663→      return { intent: intent.intent, text: await localize(r.text, ctx), cards: r.cards, engineSource: "deterministic_fallback", evidence: [] };
+   664→    }
+   665→    case "meal_explanation":
+   666→    case "recommendation_explanation": {
+   667→      const r = buildExplanationReply(ctx);
+   668→      return { intent: intent.intent, text: await localize(r.text, ctx), cards: r.cards, engineSource: "deterministic_fallback", evidence: r.evidence };
+   669→    }
+   670→    case "next_meal": {
+   671→      const r = await buildNextMealReply(ctx, profile);
+   672→      return { intent: intent.intent, text: r.text, cards: r.cards, engineSource: r.engineSource, evidence: r.evidence };
+   673→    }
+   674→    case "plan_rest_of_day": {
+   675→      const r = await buildPlanRestOfDayReply(ctx, profile);
+   676→      return { intent: intent.intent, text: r.text, cards: r.cards, engineSource: "deterministic_fallback", evidence: r.evidence };
+   677→    }
+   678→    case "daily_plan": {
+   679→      const r = await buildDailyPlanReply(ctx, profile);
+   680→      return { intent: intent.intent, text: r.text, cards: r.cards, engineSource: "deterministic_fallback", evidence: r.evidence };
+   681→    }
+   682→    case "meal_swap": {
+   683→      const r = await buildMealSwapReply(ctx, profile);
+   684→      return { intent: intent.intent, text: r.text, cards: r.cards, engineSource: r.engineSource, evidence: r.evidence };
+   685→    }
+   686→    case "food_question":
+   687→    case "general_nutrition_question":
+   688→    default: {
+   689→      const evidenceQuery = [input.message, ctx.health_conditions.join(" "), ctx.meal_slot].join(" ");
+   690→      const evidence = await retrieveEvidence(evidenceQuery, 2, [...ctx.health_conditions.map((c) => c.toLowerCase()), ctx.diet.type.replace("_", " ")]).catch(() => ({ chunks: [] as EvidenceChunk[], latencyMs: 0, method: "tfidf_cosine" as const }));
+   691→      const r = await llmFreeFormReply(ctx, input.message, input.threadHistory, evidence.chunks);
+   692→      const cards: CoachCard[] = r.engineSource === "ai" && evidence.chunks.length ? [{ kind: "evidence", sources: evidence.chunks.slice(0, 2).map((e) => ({ id: e.evidence_id, source: e.source, title: e.document, snippet: e.text.slice(0, 220) })) }] : [];
+   693→      return { intent: intent.intent, text: r.text, cards, engineSource: r.engineSource, evidence: evidence.chunks };
+   694→    }
+   695→  }
+   696→}
+   697→

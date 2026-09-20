@@ -27,6 +27,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { useNutriStore, MEAL_TYPE_ICON, MEAL_TYPE_ACCENT, mealLabel } from "./store";
+import { ProvenanceLine } from "./xai";
 import { formatGrams, formatKcal } from "@/lib/client/format";
 import type { Compliance, MealDetail, RecentMealsResponse } from "@/lib/client/types";
 import { api } from "@/lib/client/api";
@@ -747,6 +748,11 @@ export function RecentMeals() {
                               );
                             })}
                           </div>
+                          {/* XAI: provenance — where the numbers came from */}
+                          <ProvenanceLine
+                            foods={m.foods.map((f) => ({ name: f.name, confidence: f.confidence, quantitySource: f.quantitySource, source: f.source }))}
+                            className="mt-2"
+                          />
                         </div>
                       </div>
                     </CollapsibleContent>

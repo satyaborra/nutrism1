@@ -112,6 +112,29 @@ export interface FoodSearchResponse {
   foods: FoodSearchItem[];
 }
 
+// ---------- Explainable AI (XAI) ----------
+
+/** Deterministic per-line "why this number?" explanation (built server-side). */
+export interface LineExplanation {
+  summary: string;
+  factors: string[];
+  dataQuality: "verified" | "unmatched";
+}
+
+/** Per-food calorie contribution to a meal's totals. */
+export interface Contribution {
+  name: string;
+  kcal: number;
+  pct: number;
+}
+
+/** Deterministic meal-level "how were these totals calculated?" explanation. */
+export interface TotalsExplanation {
+  summary: string;
+  contributors: Contribution[];
+  factors: string[];
+}
+
 // ---------- Analyze / confirm / log ----------
 
 export interface DetectedLanguage {
@@ -162,6 +185,7 @@ export interface ConfirmFoodLine {
   source: string | null;
   perReference: string | null;
   conversionNote: string | null;
+  explain: LineExplanation;
 }
 
 export interface ConfirmFoodRequest {
@@ -185,6 +209,7 @@ export interface ConfirmFoodResponse {
   compliance: Compliance;
   incomplete: boolean;
   note: string | null;
+  totalsExplain: TotalsExplanation;
 }
 
 export interface LogMealItemInput {
@@ -193,6 +218,10 @@ export interface LogMealItemInput {
   quantity: number;
   unit: string;
   preparation?: string | null;
+  /** XAI provenance — AI recognition confidence 0..1, null when user-entered (sanitized server-side). */
+  confidence?: number | null;
+  /** XAI provenance — user | estimated | unknown. */
+  quantitySource?: string;
 }
 
 export interface LogMealRequest {
@@ -240,6 +269,7 @@ export interface LogMealResponse {
   meal: MealSummary;
   totals: NutritionValues;
   compliance: Compliance;
+  explanation?: TotalsExplanation;
   recommendationInvalidated: boolean;
 }
 
@@ -255,6 +285,8 @@ export interface MealFoodDetail {
   preparation: string | null;
   confidence: number | null;
   quantitySource: string;
+  /** Provenance of the nutrition values, e.g. "IFCT2017" (null when unmapped). */
+  source?: string | null;
   nutrition: NutritionValues;
 }
 

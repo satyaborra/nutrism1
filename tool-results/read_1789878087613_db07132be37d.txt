@@ -1,0 +1,702 @@
+     1→     1→"use client";
+     2→     2→
+     3→     3→/**
+     4→     4→ * Food logging wizard — the core product flow:
+     5→     5→ *   1. INPUT   — pick a mode (take a photo / upload an image / describe) and
+     6→     6→ *                send it for AI perception.
+     7→     7→ *   2. REVIEW  — AI perception results; user fixes matches/quantities, then the
+     8→     8→ *                server computes nutrition (confirm-food) for preview.
+     9→     9→ *   3. LOGGED  — meal persisted transactionally & idempotently (log-meal).
+    10→    10→ * The client never computes nutrition — all numbers come from the API.
+    11→    11→ *
+    12→    12→ * Visual language mirrors the "Log a Meal" design: three pastel mode cards, a
+    13→    13→ * dashed capture surface with drag & drop, a "Recent Inputs" one-tap reuse
+    14→    14→ * strip, and a full-width gradient "Analyze Meal with AI" CTA.
+    15→    15→ */
+    16→    16→import { useEffect, useRef, useState } from "react";
+    17→    17→import {
+    18→    18→  AlertTriangle,
+    19→    19→  ArrowRight,
+    20→    20→  BarChart3,
+    21→    21→  CalendarClock,
+    22→    22→  Camera,
+    23→    23→  CheckCircle2,
+    24→    24→  ChevronLeft,
+    25→    25→  ChevronRight,
+    26→    26→  History,
+    27→    27→  ImagePlus,
+    28→    28→  Languages,
+    29→    29→  Loader2,
+    30→    30→  Mic,
+    31→    31→  NotebookPen,
+    32→    32→  Plus,
+    33→    33→  Search,
+    34→    34→  Sparkles,
+    35→    35→  Trash2,
+    36→    36→  X,
+    37→    37→} from "lucide-react";
+    38→    38→import { Badge } from "@/components/ui/badge";
+    39→    39→import { Button } from "@/components/ui/button";
+    40→    40→import { Card, CardContent, CardFooter } from "@/components/ui/card";
+    41→    41→import { Input } from "@/components/ui/input";
+    42→    42→import { Label } from "@/components/ui/label";
+    43→    43→import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+    44→    44→import { Textarea } from "@/components/ui/textarea";
+    45→    45→import { useToast } from "@/hooks/use-toast";
+    46→    46→import { cn } from "@/lib/utils";
+    47→    47→import { formatGrams, formatKcal, formatMg, NUTRIENT_UNIT } from "@/lib/client/format";
+    48→    48→import type {
+    49→    49→  AnalyzeFoodResponse,
+    50→    50→  Compliance,
+    51→    51→  ConfirmFoodLine,
+    52→    52→  ConfirmFoodResponse,
+    53→    53→  FoodSearchItem,
+    54→    54→  MatchStatus,
+    55→    55→  MealDetail,
+    56→    56→  NutritionValues,
+    57→    57→  QuantitySource,
+    58→    58→} from "@/lib/client/types";
+    59→    59→import { api, ApiError, fileToDataUrl } from "@/lib/client/api";
+    60→    60→import { MEAL_TYPES, languageLabel, mealLabel, useNutriStore } from "./store";
+    61→    61→import { FavoritesBar } from "./favorites-bar";
+    62→    62→import { ComplianceAlerts } from "./summary";
+    63→    63→
+    64→    64→const EXAMPLES = [
+    65→    65→  "2 idli and one cup sambar",
+    66→    66→  "rendu dosa, oru cup chaya",
+    67→    67→  "2 roti aur sabzi with dal",
+    68→    68→  "grilled chicken salad with olive oil",
+    69→    69→];
+    70→    70→
+    71→    71→const COMMON_UNITS = ["piece", "pieces", "cup", "bowl", "glass", "katori", "tbsp", "tsp", "g", "ml", "serving"];
+    72→    72→
+    73→    73→/* ---- Minimal Web Speech API typings (browser voice input, no backend) ---- */
+    74→    74→interface SpeechRecognitionEventLike {
+    75→    75→  results: ArrayLike<ArrayLike<{ transcript: string }>>;
+    76→    76→}
+    77→    77→interface SpeechRecognitionLike {
+    78→    78→  lang: string;
+    79→    79→  interimResults: boolean;
+    80→    80→  continuous: boolean;
+    81→    81→  start(): void;
+    82→    82→  stop(): void;
+    83→    83→  onresult: ((e: SpeechRecognitionEventLike) => void) | null;
+    84→    84→  onerror: ((e: { error?: string }) => void) | null;
+    85→    85→  onend: (() => void) | null;
+    86→    86→}
+    87→    87→type SpeechRecognitionCtor = new () => SpeechRecognitionLike;
+    88→    88→
+    89→    89→function getSpeechRecognition(): SpeechRecognitionCtor | null {
+    90→    90→  if (typeof window === "undefined") return null;
+    91→    91→  const w = window as unknown as { SpeechRecognition?: SpeechRecognitionCtor; webkitSpeechRecognition?: SpeechRecognitionCtor };
+    92→    92→  return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
+    93→    93→}
+    94→    94→
+    95→    95→/** Voice recognition locale per UI language key (rail language picker). */
+    96→    96→const VOICE_LOCALES: Record<string, string> = {
+    97→    97→  en: "en-IN",
+    98→    98→  ta: "ta-IN",
+    99→    99→  te: "te-IN",
+   100→   100→  hi: "hi-IN",
+   101→   101→  kn: "kn-IN",
+   102→   102→};
+   103→   103→
+   104→   104→/** Describe-mode placeholder examples per UI language key. */
+   105→   105→const PLACEHOLDERS: Record<string, string> = {
+   106→   106→  en: 'e.g. "2 idli and one cup sambar" · "rendu dosa, oru chaya" · "2 roti aur dal"',
+   107→   107→  ta: 'உதா: "இரண்டு இட்லி, ஒரு கப் சாம்பார்"',
+   108→   108→  te: 'ఉదా: "రెండు దోసలు, ఒక కప్ చాయ"',
+   109→   109→  hi: 'जैसे: "2 रोटी और दाल"',
+   110→   110→  kn: 'ಉದಾ: "ಎರಡು ಇಡ್ಲಿ, ಒಂದು ಕಪ್ ಸಾಂಬಾರ್"',
+   111→   111→};
+   112→   112→
+   113→   113→/** Default clock time per meal slot for backfilled days (local time). */
+   114→   114→const SLOT_DEFAULT_TIME: Record<string, string> = {
+   115→   115→  breakfast: "08:30",
+   116→   116→  lunch: "12:30",
+   117→   117→  snack: "16:30",
+   118→   118→  dinner: "19:30",
+   119→   119→};
+   120→   120→
+   121→   121→function dayKeyOf(d: Date): string {
+   122→   122→  const y = d.getFullYear();
+   123→   123→  const m = String(d.getMonth() + 1).padStart(2, "0");
+   124→   124→  const day = String(d.getDate()).padStart(2, "0");
+   125→   125→  return `${y}-${m}-${day}`;
+   126→   126→}
+   127→   127→
+   128→   128→function todayKey(): string {
+   129→   129→  return dayKeyOf(new Date());
+   130→   130→}
+   131→   131→
+   132→   132→function yesterdayKey(): string {
+   133→   133→  const d = new Date();
+   134→   134→  d.setDate(d.getDate() - 1);
+   135→   135→  return dayKeyOf(d);
+   136→   136→}
+   137→   137→
+   138→   138→function minBackfillKey(): string {
+   139→   139→  const d = new Date();
+   140→   140→  d.setDate(d.getDate() - 30);
+   141→   141→  return dayKeyOf(d);
+   142→   142→}
+   143→   143→
+   144→   144→function prettyDate(key: string): string {
+   145→   145→  return new Date(`${key}T12:00:00`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+   146→   146→}
+   147→   147→
+   148→   148→/** Deterministic thumbnail for a recent meal, picked from its food names. */
+   149→   149→function thumbFor(meal: MealDetail): string {
+   150→   150→  const names = meal.foods.map((f) => `${f.name} ${f.originalName ?? ""}`).join(" ").toLowerCase();
+   151→   151→  if (/idli/.test(names)) return "/images/meal-idli.png";
+   152→   152→  if (/dosa|chaya|chai/.test(names)) return "/images/dish-dosa.png";
+   153→   153→  if (/banana/.test(names)) return "/images/meal-banana.png";
+   154→   154→  if (/buttermilk|chaas|curd/.test(names)) return "/images/meal-buttermilk.png";
+   155→   155→  if (/rice|dal|roti|sabzi|khichdi|salad|chicken/.test(names)) return "/images/meal-rice-dal.png";
+   156→   156→  return "/images/meal-generic.png";
+   157→   157→}
+   158→   158→
+   159→   159→/** Human relative time for recent-input chips ("2 minutes ago", "Yesterday"). */
+   160→   160→function relTime(iso: string): string {
+   161→   161→  const then = new Date(iso).getTime();
+   162→   162→  if (!Number.isFinite(then)) return "";
+   163→   163→  const mins = Math.max(0, Math.round((Date.now() - then) / 60000));
+   164→   164→  if (mins < 1) return "just now";
+   165→   165→  if (mins < 60) return `${mins} minute${mins === 1 ? "" : "s"} ago`;
+   166→   166→  const thenDay = new Date(iso);
+   167→   167→  const now = new Date();
+   168→   168→  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+   169→   169→  const startOfThat = new Date(thenDay.getFullYear(), thenDay.getMonth(), thenDay.getDate()).getTime();
+   170→   170→  const dayDiff = Math.round((startOfToday - startOfThat) / 86400000);
+   171→   171→  if (dayDiff === 0) {
+   172→   172→    const hours = Math.round(mins / 60);
+   173→   173→    return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+   174→   174→  }
+   175→   175→  if (dayDiff === 1) return "Yesterday";
+   176→   176→  if (dayDiff < 7) return `${dayDiff} days ago`;
+   177→   177→  return thenDay.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+   178→   178→}
+   179→   179→
+   180→   180→/** "2 cup rice + 1 katori dal" style reuse text for the describe box. */
+   181→   181→function reuseTextOf(meal: MealDetail): string {
+   182→   182→  return meal.foods
+   183→   183→    .map((f) => `${f.quantity} ${f.unit} ${f.name}`.replace(/\s+/g, " ").trim())
+   184→   184→    .join(" + ")
+   185→   185→    .slice(0, 500);
+   186→   186→}
+   187→   187→
+   188→   188→interface EditableLine {
+   189→   189→  lineId: string;
+   190→   190→  originalName: string;
+   191→   191→  displayName: string;
+   192→   192→  foodId: string | null;
+   193→   193→  matchStatus: MatchStatus;
+   194→   194→  candidates?: { foodId: string; name: string }[];
+   195→   195→  quantity: number;
+   196→   196→  unit: string;
+   197→   197→  preparation?: string | null;
+   198→   198→  confidence: number;
+   199→   199→  quantitySource: QuantitySource;
+   200→   200→}
+   201→   201→
+   202→   202→interface AnalysisMeta {
+   203→   203→  draftId: string;
+   204→   204→  inputType: "text" | "image" | "image_text";
+   205→   205→  detectedLanguage: AnalyzeFoodResponse["detectedLanguage"] | null;
+   206→   206→  aiOk: boolean;
+   207→   207→  aiNote: string | null;
+   208→   208→  aiLatencyMs: number | null;
+   209→   209→}
+   210→   210→
+   211→   211→interface LoggedSummary {
+   212→   212→  mealType: string;
+   213→   213→  duplicate: boolean;
+   214→   214→  totals: NutritionValues;
+   215→   215→  compliance: Compliance;
+   216→   216→  backfillDate: string | null;
+   217→   217→}
+   218→   218→
+   219→   219→type Step = "input" | "review" | "logged";
+   220→   220→type LogMode = "camera" | "upload" | "text";
+   221→   221→
+   222→   222→const MODE_UI: Record<LogMode, { title: string; sub: string; icon: React.ComponentType<{ className?: string }>; chip: string; arrow: string }> = {
+   223→   223→  camera: {
+   224→   224→    title: "Take a Photo",
+   225→   225→    sub: "Snap your meal",
+   226→   226→    icon: Camera,
+   227→   227→    chip: "bg-gradient-to-br from-emerald-500 to-emerald-600 text-white shadow-sm shadow-emerald-600/30",
+   228→   228→    arrow: "bg-emerald-600 text-white",
+   229→   229→  },
+   230→   230→  upload: {
+   231→   231→    title: "Upload Image",
+   232→   232→    sub: "Choose from gallery",
+   233→   233→    icon: ImagePlus,
+   234→   234→    chip: "bg-gradient-to-br from-sky-400 to-sky-500 text-white shadow-sm shadow-sky-500/30",
+   235→   235→    arrow: "bg-sky-500 text-white",
+   236→   236→  },
+   237→   237→  text: {
+   238→   238→    title: "Describe Your Meal",
+   239→   239→    sub: "Type or speak",
+   240→   240→    icon: NotebookPen,
+   241→   241→    chip: "bg-gradient-to-br from-amber-400 to-amber-500 text-white shadow-sm shadow-amber-500/30",
+   242→   242→    arrow: "bg-amber-500 text-white",
+   243→   243→  },
+   244→   244→};
+   245→   245→
+   246→   246→export function FoodLogger({ onLogged, voiceLang }: { onLogged: () => void; voiceLang?: string }) {
+   247→   247→  const { toast } = useToast();
+   248→   248→  const backfillRequest = useNutriStore((s) => s.backfillRequest);
+   249→   249→  const clearBackfill = useNutriStore((s) => s.clearBackfill);
+   250→   250→  const loggerRequest = useNutriStore((s) => s.loggerRequest);
+   251→   251→  const clearLoggerRequest = useNutriStore((s) => s.clearLoggerRequest);
+   252→   252→
+   253→   253→  const [step, setStep] = useState<Step>("input");
+   254→   254→  const [mode, setMode] = useState<LogMode>("camera");
+   255→   255→  const [text, setText] = useState("");
+   256→   256→  const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
+   257→   257→  const [imageHint, setImageHint] = useState("");
+   258→   258→  const [dragOver, setDragOver] = useState(false);
+   259→   259→  const fileInputRef = useRef<HTMLInputElement>(null);
+   260→   260→
+   261→   261→  const [logDate, setLogDate] = useState<string>(todayKey());
+   262→   262→
+   263→   263→  const [analyzing, setAnalyzing] = useState(false);
+   264→   264→  const [analyzeError, setAnalyzeError] = useState<string | null>(null);
+   265→   265→  const [meta, setMeta] = useState<AnalysisMeta | null>(null);
+   266→   266→
+   267→   267→  const [lines, setLines] = useState<EditableLine[]>([]);
+   268→   268→  const [mealType, setMealType] = useState<string>("snack");
+   269→   269→  const [confirmResult, setConfirmResult] = useState<ConfirmFoodResponse | null>(null);
+   270→   270→  const [confirming, setConfirming] = useState(false);
+   271→   271→  const [confirmError, setConfirmError] = useState<string | null>(null);
+   272→   272→  const [logging, setLogging] = useState(false);
+   273→   273→  const [loggedResult, setLoggedResult] = useState<LoggedSummary | null>(null);
+   274→   274→  const [voiceListening, setVoiceListening] = useState(false);
+   275→   275→  const voiceRef = useRef<SpeechRecognitionLike | null>(null);
+   276→   276→
+   277→   277→  function resetAll() {
+   278→   278→    setStep("input");
+   279→   279→    setText("");
+   280→   280→    setImageDataUrl(null);
+   281→   281→    setImageHint("");
+   282→   282→    setMeta(null);
+   283→   283→    setLines([]);
+   284→   284→    setConfirmResult(null);
+   285→   285→    setConfirmError(null);
+   286→   286→    setAnalyzeError(null);
+   287→   287→    setLogDate(todayKey());
+   288→   288→    clearBackfill();
+   289→   289→    if (fileInputRef.current) fileInputRef.current.value = "";
+   290→   290→  }
+   291→   291→
+   292→   292→  /** The activity calendar can ask the logger to log for a past day. */
+   293→   293→  useEffect(() => {
+   294→   294→    if (!backfillRequest) return;
+   295→   295→    setStep("input");
+   296→   296→    setLogDate(backfillRequest.date);
+   297→   297→    clearBackfill();
+   298→   298→    toast({ title: `Logging for ${prettyDate(backfillRequest.date)}`, description: "The meal you log now lands in that day's history." });
+   299→   299→  }, [backfillRequest, clearBackfill, toast]);
+   300→   300→
+   301→   301→  /** Quick Actions / hero / search / examples can drive the logger remotely. */
+   302→   302→  useEffect(() => {
+   303→   303→    if (!loggerRequest) return;
+   304→   304→    setStep("input");
+   305→   305→    if (loggerRequest.text) {
+   306→   306→      setMode("text");
+   307→   307→      setText(loggerRequest.text.slice(0, 2000));
+   308→   308→      toast({ title: "Loaded into Describe", description: "Check the text, then Analyze Meal with AI." });
+   309→   309→    } else {
+   310→   310→      setMode(loggerRequest.tab === "photo" ? "upload" : "text");
+   311→   311→    }
+   312→   312→    if (loggerRequest.openFile) {
+   313→   313→      // wait a tick so the photo UI (and its file input) exists
+   314→   314→      requestAnimationFrame(() => fileInputRef.current?.click());
+   315→   315→    }
+   316→   316→    if (loggerRequest.voice) {
+   317→   317→      requestAnimationFrame(() => startVoiceInput());
+   318→   318→    }
+   319→   319→    clearLoggerRequest();
+   320→   320→  }, [loggerRequest, clearLoggerRequest, toast]);
+   321→   321→
+   322→   322→  /** Voice input via the browser Web Speech API — transcript lands in the
+   323→   323→   *  describe textarea; the AI pipeline handles the rest. */
+   324→   324→  function startVoiceInput() {
+   325→   325→    const Ctor = getSpeechRecognition();
+   326→   326→    if (!Ctor) {
+   327→   327→      toast({
+   328→   328→        title: "Voice input not available",
+   329→   329→        description: "Your browser doesn't support speech recognition — try Chrome, or type the meal instead.",
+   330→   330→        variant: "destructive",
+   331→   331→      });
+   332→   332→      return;
+   333→   333→    }
+   334→   334→    if (voiceRef.current) {
+   335→   335→      voiceRef.current.stop();
+   336→   336→      voiceRef.current = null;
+   337→   337→      setVoiceListening(false);
+   338→   338→      return;
+   339→   339→    }
+   340→   340→    try {
+   341→   341→      const rec = new Ctor();
+   342→   342→      rec.lang = VOICE_LOCALES[voiceLang ?? "en"] ?? "en-IN";
+   343→   343→      rec.interimResults = false;
+   344→   344→      rec.continuous = false;
+   345→   345→      rec.onresult = (e) => {
+   346→   346→        const transcript = Array.from({ length: e.results.length }, (_, i) => e.results[i][0]?.transcript ?? "")
+   347→   347→          .join(" ")
+   348→   348→          .trim();
+   349→   349→        if (transcript) {
+   350→   350→          setText((prev) => (prev ? `${prev} ${transcript}` : transcript));
+   351→   351→          setMode("text");
+   352→   352→          toast({ title: "Heard you", description: `“${transcript}” — check the text, then Analyze.` });
+   353→   353→        }
+   354→   354→      };
+   355→   355→      rec.onerror = (e) => {
+   356→   356→        toast({ title: "Could not listen", description: e.error === "not-allowed" ? "Microphone permission was denied." : "Try again in a quieter moment.", variant: "destructive" });
+   357→   357→        setVoiceListening(false);
+   358→   358→        voiceRef.current = null;
+   359→   359→      };
+   360→   360→      rec.onend = () => {
+   361→   361→        setVoiceListening(false);
+   362→   362→        voiceRef.current = null;
+   363→   363→      };
+   364→   364→      voiceRef.current = rec;
+   365→   365→      setVoiceListening(true);
+   366→   366→      rec.start();
+   367→   367→      toast({ title: "Listening…", description: "Speak your meal — e.g. “two idli and one cup sambar”." });
+   368→   368→    } catch {
+   369→   369→      setVoiceListening(false);
+   370→   370→      voiceRef.current = null;
+   371→   371→      toast({ title: "Could not start the microphone", description: "Please allow microphone access and try again.", variant: "destructive" });
+   372→   372→    }
+   373→   373→  }
+   374→   374→
+   375→   375→  async function handleAnalyze() {
+   376→   376→    setAnalyzing(true);
+   377→   377→    setAnalyzeError(null);
+   378→   378→    try {
+   379→   379→      const payload: { text?: string; imageDataUrl?: string; hint?: string } = {};
+   380→   380→      if (mode === "text" && text.trim()) payload.text = text.trim();
+   381→   381→      if (mode !== "text" && imageDataUrl) {
+   382→   382→        payload.imageDataUrl = imageDataUrl;
+   383→   383→        if (imageHint.trim()) payload.hint = imageHint.trim();
+   384→   384→      }
+   385→   385→      const res = await api.analyzeFood(payload);
+   386→   386→      setMeta({
+   387→   387→        draftId: res.draftId,
+   388→   388→        inputType: mode === "text" ? "text" : "image",
+   389→   389→        detectedLanguage: res.detectedLanguage,
+   390→   390→        aiOk: res.aiOk,
+   391→   391→        aiNote: res.aiNote,
+   392→   392→        aiLatencyMs: res.aiLatencyMs,
+   393→   393→      });
+   394→   394→      setLines(
+   395→   395→        res.foods.map((f) => ({
+   396→   396→          lineId: f.lineId,
+   397→   397→          originalName: f.originalName,
+   398→   398→          displayName: f.displayName,
+   399→   399→          foodId: f.foodId,
+   400→   400→          matchStatus: f.matchStatus,
+   401→   401→          candidates: f.candidates,
+   402→   402→          quantity: f.quantity,
+   403→   403→          unit: f.unit,
+   404→   404→          preparation: f.preparation ?? null,
+   405→   405→          confidence: f.confidence,
+   406→   406→          quantitySource: f.quantitySource,
+   407→   407→        }))
+   408→   408→      );
+   409→   409→      setMealType(res.mealTypeGuess || "snack");
+   410→   410→      setConfirmResult(null);
+   411→   411→      setStep("review");
+   412→   412→      if (!res.aiOk) {
+   413→   413→        toast({
+   414→   414→          title: "Parsed offline",
+   415→   415→          description: "The AI service was unavailable, so a fallback parser was used. Please double-check the items below.",
+   416→   416→          variant: "destructive",
+   417→   417→        });
+   418→   418→      }
+   419→   419→    } catch (e) {
+   420→   420→      setAnalyzeError(e instanceof ApiError ? e.message : "Analysis failed. Please try again.");
+   421→   421→    } finally {
+   422→   422→      setAnalyzing(false);
+   423→   423→    }
+   424→   424→  }
+   425→   425→
+   426→   426→  async function handleFileChange(file: File | undefined | null) {
+   427→   427→    if (!file) return;
+   428→   428→    try {
+   429→   429→      const dataUrl = await fileToDataUrl(file);
+   430→   430→      setImageDataUrl(dataUrl);
+   431→   431→      setAnalyzeError(null);
+   432→   432→    } catch {
+   433→   433→      setAnalyzeError("Could not read that image. Try a JPEG, PNG or WebP under 6 MB.");
+   434→   434→    }
+   435→   435→  }
+   436→   436→
+   437→   437→  function patchLine(lineId: string, patch: Partial<EditableLine>) {
+   438→   438→    setLines((prev) => prev.map((l) => (l.lineId === lineId ? { ...l, ...patch } : l)));
+   439→   439→    setConfirmResult(null);
+   440→   440→    setConfirmError(null);
+   441→   441→  }
+   442→   442→
+   443→   443→  function removeLine(lineId: string) {
+   444→   444→    setLines((prev) => prev.filter((l) => l.lineId !== lineId));
+   445→   445→    setConfirmResult(null);
+   446→   446→  }
+   447→   447→
+   448→   448→  function addFoodFromSearch(item: FoodSearchItem) {
+   449→   449→    setLines((prev) => [
+   450→   450→      ...prev,
+   451→   451→      {
+   452→   452→        lineId: `line_manual_${crypto.randomUUID().slice(0, 8)}`,
+   453→   453→        originalName: item.name,
+   454→   454→        displayName: item.name,
+   455→   455→        foodId: item.id,
+   456→   456→        matchStatus: "matched",
+   457→   457→        quantity: 1,
+   458→   458→        unit: item.servingUnit,
+   459→   459→        preparation: null,
+   460→   460→        confidence: 1,
+   461→   461→        quantitySource: "user",
+   462→   462→      },
+   463→   463→    ]);
+   464→   464→    setConfirmResult(null);
+   465→   465→  }
+   466→   466→
+   467→   467→  function foodsPayload() {
+   468→   468→    return lines.map((l) => ({
+   469→   469→      lineId: l.lineId,
+   470→   470→      foodId: l.foodId,
+   471→   471→      name: l.displayName || l.originalName,
+   472→   472→      quantity: Number(l.quantity) || 0,
+   473→   473→      unit: l.unit,
+   474→   474→      preparation: l.preparation,
+   475→   475→    }));
+   476→   476→  }
+   477→   477→
+   478→   478→  async function handleConfirm() {
+   479→   479→    setConfirming(true);
+   480→   480→    setConfirmError(null);
+   481→   481→    try {
+   482→   482→      const res = await api.confirmFood({ draftId: meta?.draftId ?? "", mealType, foods: foodsPayload() });
+   483→   483→      setConfirmResult(res);
+   484→   484→    } catch (e) {
+   485→   485→      setConfirmError(e instanceof ApiError ? e.message : "Could not calculate nutrition. Please try again.");
+   486→   486→    } finally {
+   487→   487→      setConfirming(false);
+   488→   488→    }
+   489→   489→  }
+   490→   490→
+   491→   491→  async function handleLog() {
+   492→   492→    setLogging(true);
+   493→   493→    try {
+   494→   494→      // Backfilled meals get a synthetic slot time on the chosen day; today
+   495→   495→      // logs live at "now" exactly as before.
+   496→   496→      const isBackfill = logDate !== todayKey();
+   497→   497→      const res = await api.logMeal({
+   498→   498→        requestId: crypto.randomUUID(),
+   499→   499→        draftId: meta?.draftId,
+   500→   500→        mealType,
+   501→   501→        foods: foodsPayload(),
+   502→   502→        // Image-based drafts are labeled "image" so the history shows how it was logged
+   503→   503→        source: meta?.inputType === "image" ? "image" : meta?.inputType === "image_text" ? "image" : "text",
+   504→   504→        ...(isBackfill ? { eatenAt: `${logDate}T${SLOT_DEFAULT_TIME[mealType] ?? "12:30"}:00` } : {}),
+   505→   505→      });
+   506→   506→      toast({
+   507→   507→        title: res.duplicate ? "Meal already logged" : isBackfill ? `Logged for ${prettyDate(logDate)}` : "Meal logged",
+   508→   508→        description: `${mealLabel(mealType)} · ${formatKcal(res.totals.calories)}${isBackfill ? " · added to that day's history" : ""}${res.compliance.state !== "COMPLIANT" ? " · check the alerts below" : ""}`,
+   509→   509→      });
+   510→   510→      onLogged();
+   511→   511→      setLoggedResult({
+   512→   512→        mealType,
+   513→   513→        duplicate: res.duplicate,
+   514→   514→        totals: res.totals,
+   515→   515→        compliance: res.compliance,
+   516→   516→        backfillDate: isBackfill ? logDate : null,
+   517→   517→      });
+   518→   518→      setStep("logged");
+   519→   519→    } catch (e) {
+   520→   520→      toast({
+   521→   521→        title: "Could not log meal",
+   522→   522→        description: e instanceof ApiError ? e.message : "Unexpected error. Please try again.",
+   523→   523→        variant: "destructive",
+   524→   524→      });
+   525→   525→    } finally {
+   526→   526→      setLogging(false);
+   527→   527→    }
+   528→   528→  }
+   529→   529→
+   530→   530→  // ---------------- render ----------------
+   531→   531→
+   532→   532→  return (
+   533→   533→    <div className="space-y-3">
+   534→   534→      <Card id="log-food" className="scroll-mt-24 overflow-hidden rounded-3xl border-border/60 shadow-sm transition-shadow duration-300 hover:shadow-md hover:shadow-primary/5">
+   535→   535→        {step === "input" && (
+   536→   536→          <CardContent className="space-y-5 p-4 sm:p-6">
+   537→   537→            <FavoritesBar onLogged={onLogged} />
+   538→   538→
+   539→   539→            {/* logging date — today by default, backfill for the last 30 days */}
+   540→   540→            <div className="rounded-xl border bg-muted/30 px-3 py-2.5">
+   541→   541→              <div className="flex flex-wrap items-center gap-2">
+   542→   542→                <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+   543→   543→                  <CalendarClock className="size-3.5" aria-hidden />
+   544→   544→                  Logging for
+   545→   545→                </span>
+   546→   546→                <div role="group" aria-label="Logging date" className="flex overflow-hidden rounded-md border">
+   547→   547→                  <button
+   548→   548→                    type="button"
+   549→   549→                    onClick={() => setLogDate(todayKey())}
+   550→   550→                    aria-pressed={logDate === todayKey()}
+   551→   551→                    className={cn(
+   552→   552→                      "px-2.5 py-1 text-xs font-medium transition-colors active:scale-95",
+   553→   553→                      logDate === todayKey() ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:bg-muted",
+   554→   554→                    )}
+   555→   555→                  >
+   556→   556→                    Today
+   557→   557→                  </button>
+   558→   558→                  <button
+   559→   559→                    type="button"
+   560→   560→                    onClick={() => setLogDate(yesterdayKey())}
+   561→   561→                    aria-pressed={logDate === yesterdayKey()}
+   562→   562→                    className={cn(
+   563→   563→                      "px-2.5 py-1 text-xs font-medium transition-colors active:scale-95",
+   564→   564→                      logDate === yesterdayKey() ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:bg-muted",
+   565→   565→                    )}
+   566→   566→                  >
+   567→   567→                    Yesterday
+   568→   568→                  </button>
+   569→   569→                </div>
+   570→   570→                <Input
+   571→   571→                  type="date"
+   572→   572→                  value={logDate}
+   573→   573→                  min={minBackfillKey()}
+   574→   574→                  max={todayKey()}
+   575→   575→                  onChange={(e) => e.target.value && setLogDate(e.target.value)}
+   576→   576→                  aria-label="Pick a past date to log for (up to 30 days back)"
+   577→   577→                  className="h-8 w-[9.5rem] bg-background text-xs"
+   578→   578→                />
+   579→   579→              </div>
+   580→   580→              {logDate !== todayKey() && (
+   581→   581→                <p className="mt-2 flex items-start gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-[11px] leading-snug text-amber-700 dark:text-amber-400">
+   582→   582→                  <CalendarClock className="mt-0.5 size-3 shrink-0" aria-hidden />
+   583→   583→                  <span>
+   584→   584→                    Backfill mode — this meal lands on <strong>{prettyDate(logDate)}</strong>&apos;s history, not today&apos;s summary. Slot time defaults to{" "}
+   585→   585→                    {SLOT_DEFAULT_TIME[mealType] ?? "12:30"}.
+   586→   586→                  </span>
+   587→   587→                </p>
+   588→   588→              )}
+   589→   589→            </div>
+   590→   590→
+   591→   591→            {/* mode picker — three cards, one active */}
+   592→   592→            <div role="radiogroup" aria-label="How do you want to log this meal?" className="grid grid-cols-1 gap-3 min-[480px]:grid-cols-3">
+   593→   593→              {(Object.keys(MODE_UI) as LogMode[]).map((m) => {
+   594→   594→                const ui = MODE_UI[m];
+   595→   595→                const active = mode === m;
+   596→   596→                const Icon = ui.icon;
+   597→   597→                return (
+   598→   598→                  <button
+   599→   599→                    key={m}
+   600→   600→                    type="button"
+   601→   601→                    role="radio"
+   602→   602→                    aria-checked={active}
+   603→   603→                    onClick={() => setMode(m)}
+   604→   604→                    className={cn(
+   605→   605→                      "group/mode flex flex-col rounded-2xl border p-4 text-left transition-all duration-150 active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-ring",
+   606→   606→                      active
+   607→   607→                        ? "border-2 border-primary bg-primary/5 shadow-md shadow-primary/10"
+   608→   608→                        : "border-border/70 bg-background shadow-sm hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md",
+   609→   609→                    )}
+   610→   610→                  >
+   611→   611→                    <span className={cn("flex h-11 w-11 items-center justify-center rounded-2xl transition-transform group-active/mode:scale-95", ui.chip)}>
+   612→   612→                      <Icon className="h-5 w-5" aria-hidden />
+   613→   613→                    </span>
+   614→   614→                    <span className="mt-3 flex items-center justify-between gap-1">
+   615→   615→                      <span className="text-sm font-bold leading-tight">{ui.title}</span>
+   616→   616→                      <span
+   617→   617→                        aria-hidden
+   618→   618→                        className={cn(
+   619→   619→                          "flex h-6 w-6 shrink-0 items-center justify-center rounded-full transition-all duration-150",
+   620→   620→                          active ? cn(ui.arrow, "translate-x-0.5") : "bg-muted text-muted-foreground group-hover/mode:bg-primary/10 group-hover/mode:text-primary",
+   621→   621→                        )}
+   622→   622→                      >
+   623→   623→                        <ArrowRight className="h-3.5 w-3.5" />
+   624→   624→                      </span>
+   625→   625→                    </span>
+   626→   626→                    <span className="mt-0.5 text-xs text-muted-foreground">{ui.sub}</span>
+   627→   627→                  </button>
+   628→   628→                );
+   629→   629→              })}
+   630→   630→            </div>
+   631→   631→
+   632→   632→            {/* capture surface — per-mode input UI */}
+   633→   633→            {mode === "text" ? (
+   634→   634→              <div className="space-y-3">
+   635→   635→                {voiceListening && (
+   636→   636→                  <p
+   637→   637→                    className="flex items-center gap-2 rounded-md border border-rose-500/40 bg-rose-500/10 px-2.5 py-1.5 text-xs font-medium text-rose-700 dark:text-rose-400"
+   638→   638→                    role="status"
+   639→   639→                    aria-live="polite"
+   640→   640→                  >
+   641→   641→                    <span className="relative flex h-2.5 w-2.5" aria-hidden>
+   642→   642→                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-500 opacity-75" />
+   643→   643→                      <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-rose-500" />
+   644→   644→                    </span>
+   645→   645→                    Listening… speak your meal, e.g. &ldquo;two idli and one cup sambar&rdquo;.
+   646→   646→                  </p>
+   647→   647→                )}
+   648→   648→                <Textarea
+   649→   649→                  aria-label="Food description"
+   650→   650→                  placeholder={PLACEHOLDERS[voiceLang ?? "en"] ?? PLACEHOLDERS.en}
+   651→   651→                  className="min-h-36 resize-y text-base"
+   652→   652→                  value={text}
+   653→   653→                  maxLength={2000}
+   654→   654→                  onChange={(e) => setText(e.target.value)}
+   655→   655→                />
+   656→   656→                <div className="flex flex-wrap items-center gap-2">
+   657→   657→                  <button
+   658→   658→                    type="button"
+   659→   659→                    onClick={startVoiceInput}
+   660→   660→                    aria-pressed={voiceListening}
+   661→   661→                    aria-label={voiceListening ? "Stop voice input" : "Start voice input"}
+   662→   662→                    title={voiceListening ? "Stop voice input" : "Speak your meal"}
+   663→   663→                    className={cn(
+   664→   664→                      "inline-flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-xs font-medium transition-all active:scale-95",
+   665→   665→                      voiceListening
+   666→   666→                        ? "border-rose-500/50 bg-rose-500/15 text-rose-700 dark:text-rose-400"
+   667→   667→                        : "bg-background text-muted-foreground hover:border-rose-400/50 hover:bg-rose-500/10 hover:text-rose-700 dark:hover:text-rose-400",
+   668→   668→                    )}
+   669→   669→                  >
+   670→   670→                    <Mic className={cn("h-3.5 w-3.5", voiceListening && "animate-pulse")} aria-hidden />
+   671→   671→                    {voiceListening ? "Stop listening" : "Speak instead"}
+   672→   672→                  </button>
+   673→   673→                  <span className="ml-auto text-[11px] tabular-nums text-muted-foreground">{text.length}/2000</span>
+   674→   674→                </div>
+   675→   675→              </div>
+   676→   676→            ) : imageDataUrl ? (
+   677→   677→              <div className="space-y-3">
+   678→   678→                <div className="overflow-hidden rounded-2xl border bg-muted/30">
+   679→   679→                  <img src={imageDataUrl} alt="Selected food preview" className="mx-auto max-h-72 w-full object-contain" />
+   680→   680→                </div>
+   681→   681→                <div className="flex flex-wrap gap-2">
+   682→   682→                  <Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
+   683→   683→                    <ImagePlus className="mr-1.5 h-4 w-4" aria-hidden /> Change photo
+   684→   684→                  </Button>
+   685→   685→                  <Button
+   686→   686→                    type="button"
+   687→   687→                    variant="ghost"
+   688→   688→                    size="sm"
+   689→   689→                    className="text-muted-foreground hover:text-destructive"
+   690→   690→                    onClick={() => {
+   691→   691→                      setImageDataUrl(null);
+   692→   692→                      setImageHint("");
+   693→   693→                      if (fileInputRef.current) fileInputRef.current.value = "";
+   694→   694→                    }}
+   695→   695→                  >
+   696→   696→                    <Trash2 className="mr-1.5 h-4 w-4" aria-hidden /> Remove
+   697→   697→                  </Button>
+   698→   698→                </div>
+   699→   699→                <div className="space-y-1.5">
+   700→   700→                  <Label htmlFor="image-hint">Anything the photo can&apos;t show? (optional)</Label>
+   701→
+   702→[showing lines 1-700 of 1388; use offset=701 with limit to continue reading]
