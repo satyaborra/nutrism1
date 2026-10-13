@@ -55,10 +55,11 @@ import type {
   MealDetail,
   NutritionValues,
   QuantitySource,
+  TotalsExplanation,
 } from "@/lib/client/types";
 import { api, ApiError, fileToDataUrl } from "@/lib/client/api";
 import { MEAL_TYPES, languageLabel, mealLabel, useNutriStore } from "./store";
-import { ConfidenceBadge, ExplainPanel, TotalsExplain } from "./xai";
+import { ConfidenceBadge, DayFitExplainer, ExplainPanel, TotalsExplain, XaiLegend } from "./xai";
 import { FavoritesBar } from "./favorites-bar";
 import { ComplianceAlerts } from "./summary";
 
@@ -215,6 +216,8 @@ interface LoggedSummary {
   totals: NutritionValues;
   compliance: Compliance;
   backfillDate: string | null;
+  /** XAI: meal-level provenance from log-meal — shown on the success screen. */
+  explanation?: TotalsExplanation;
 }
 
 type Step = "input" | "review" | "logged";
@@ -518,6 +521,7 @@ export function FoodLogger({ onLogged, voiceLang }: { onLogged: () => void; voic
         totals: res.totals,
         compliance: res.compliance,
         backfillDate: isBackfill ? logDate : null,
+        explanation: res.explanation,
       });
       setStep("logged");
     } catch (e) {
@@ -822,6 +826,9 @@ export function FoodLogger({ onLogged, voiceLang }: { onLogged: () => void; voic
                 )}
               </div>
 
+              {/* XAI: teach the badge vocabulary before the user reviews lines */}
+              <XaiLegend />
+
               {/* meal type */}
               <div className="flex items-center gap-3">
                 <Label htmlFor="meal-type" className="w-20 shrink-0 text-sm">
@@ -890,6 +897,7 @@ export function FoodLogger({ onLogged, voiceLang }: { onLogged: () => void; voic
                   stale={isDirtyAgainst(lines, confirmResult)}
                   onLog={handleLog}
                   logging={logging}
+                  showDayFit={logDate === todayKey()}
                 />
               )}
             </CardFooter>
@@ -919,6 +927,9 @@ export function FoodLogger({ onLogged, voiceLang }: { onLogged: () => void; voic
               </div>
             </div>
             <ComplianceAlerts compliance={loggedResult.compliance} conditions={[]} />
+            {loggedResult.explanation && (
+              <TotalsExplain explanation={loggedResult.explanation} defaultOpen />
+            )}
             <div className="flex gap-2">
               <Button variant="outline" className="flex-1" onClick={resetAll}>
                 <Plus className="mr-1 h-4 w-4" aria-hidden /> Log another meal
@@ -1266,7 +1277,13 @@ function FoodSearchInline({ onPick, onCancel }: { onPick: (f: FoodSearchItem) =>
                 onClick={() => onPick(f)}
                 className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted"
               >
-                <span className="min-w-0 flex-1 truncate font-medium">{f.name}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-medium">{f.name}</span>
+                  {/* XAI: verified figures at pick-time — swaps are informed, no guessing. */}
+                  <span className="block truncate text-[10px] text-muted-foreground">
+                    ≈ {formatKcal(f.calories)} per {f.reference} · {f.source}
+                  </span>
+                </span>
                 <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground">{f.category}</span>
                 {f.isVeg && (
                   <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[3px] border border-emerald-600" title="Vegetarian">
@@ -1316,11 +1333,14 @@ function ConfirmPreview({
   stale,
   onLog,
   logging,
+  showDayFit,
 }: {
   result: ConfirmFoodResponse;
   stale: boolean;
   onLog: () => void;
   logging: boolean;
+  /** XAI day-fit context only makes sense for same-day meals. */
+  showDayFit: boolean;
 }) {
   const t = result.totals;
   const chips: { key: keyof NutritionValues; label: string }[] = [
@@ -1393,6 +1413,8 @@ function ConfirmPreview({
       </div>
 
       {result.totalsExplain && <TotalsExplain explanation={result.totalsExplain} />}
+
+      <DayFitExplainer mealTotals={result.totals} enabled={showDayFit && !stale} />
 
       {result.foods.some((f) => f.source) && (
         <p className="text-[11px] text-muted-foreground">

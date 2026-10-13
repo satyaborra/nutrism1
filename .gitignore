@@ -54,3 +54,5 @@ server.log
 /skills/
 # runtime user uploads (food photos)
 /uploads/
+# agent tool artifacts
+tool-results/

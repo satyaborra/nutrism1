@@ -104,6 +104,12 @@ export interface FoodSearchItem {
   name: string;
   category: string;
   servingUnit: string;
+  /** XAI: human reference label the verified calories are per, e.g. "100 g" | "1 piece". */
+  reference: string;
+  /** XAI: verified kcal per the reference amount — shown at pick-time. */
+  calories: number;
+  /** e.g. "IFCT2017" — provenance shown at pick-time so swaps are informed. */
+  source: string;
   isVeg: boolean;
   allergens: string[];
 }

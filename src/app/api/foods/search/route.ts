@@ -19,6 +19,12 @@ export const GET = withApi("foods_search", async ({ req }: { req: NextRequest })
       name: f.canonicalName,
       category: f.category,
       servingUnit: f.servingUnit,
+      // XAI: verified figures surfaced at pick-time so swaps are informed
+      // (values are per the food's reference amount, straight from the DB).
+      // Reference string follows the same rule as confirm-food's perReference.
+      reference: /^\d/.test(f.servingUnit) ? f.servingUnit : `${f.servingSize} ${f.servingUnit}`,
+      calories: f.calories,
+      source: f.source,
       isVeg: f.isVeg,
       allergens: safeJson(f.allergens),
     })),

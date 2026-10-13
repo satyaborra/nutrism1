@@ -8,21 +8,25 @@
  * the UI presents them honestly, it never invents reasoning.
  */
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
+import { formatGrams, formatKcal } from "@/lib/client/format";
 import {
   Calculator,
   ChevronDown,
   CircleAlert,
+  CircleHelp,
   Database,
+  Info,
   Scale,
   ShieldCheck,
   Sparkles,
+  Target,
   UserRound,
 } from "lucide-react";
-import type { Contribution, LineExplanation, TotalsExplanation } from "@/lib/client/types";
+import type { CoachSnapshotResponse, Contribution, LineExplanation, NutritionValues, TotalsExplanation } from "@/lib/client/types";
 
 // ---------------------------------------------------------------- confidence
 
@@ -273,5 +277,181 @@ export function ProvenanceLine({
         </span>
       ))}
     </p>
+  );
+}
+
+// ---------------------------------------------------------------- legend
+
+/**
+ * "What do these badges mean?" — meta-explainability. Teaches the meaning of
+ * every match/confidence badge in the review step so the XAI UI itself is
+ * transparent. Static, deterministic copy — nothing is generated.
+ */
+export function XaiLegend({ className }: { className?: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className={cn("rounded-lg border border-dashed border-border/70 bg-muted/30 px-2.5 py-2", className)}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-1.5 text-left text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <CircleHelp aria-hidden className="h-3 w-3 shrink-0" />
+        What do these badges mean?
+        <ChevronDown aria-hidden className={cn("ml-auto h-3 w-3 transition-transform duration-200", open && "rotate-180")} />
+      </button>
+      {open && (
+        <ul className="mt-1.5 space-y-1.5 border-t border-border/60 pt-1.5">
+          {[
+            { icon: ShieldCheck, cls: "text-emerald-600 dark:text-emerald-400", text: "Matched — the item was found in the verified food database (IFCT2017), so its numbers are real figures, not AI guesses." },
+            { icon: Sparkles, cls: "text-primary", text: "AI 90% — how confident the AI perception was about WHAT the food is. Higher is better; below 80% double-check the item." },
+            { icon: Info, cls: "text-amber-600 dark:text-amber-400", text: "AI estimated / Quantity unclear — the AI had to infer the portion size (or couldn't). Adjust the quantity if it differs from what you ate." },
+            { icon: CircleAlert, cls: "text-destructive", text: "Not matched — the item isn't in the database yet, so it logs with 0 nutrition (honest zeros — we never invent numbers). Search to swap in a close match." },
+          ].map((row, i) => (
+            <li key={i} className="flex items-start gap-2 text-[11px] leading-relaxed text-muted-foreground">
+              <row.icon aria-hidden className={cn("mt-0.5 h-3.5 w-3.5 shrink-0", row.cls)} />
+              <span>{row.text}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------- day-fit context
+
+/**
+ * "Where this fits in your day" — places the reviewed meal in the context of
+ * today's already-logged totals and the user's targets. The snapshot numbers
+ * come from the server (deterministic aggregation); the "after this meal"
+ * projection is plain arithmetic on those displayed values. Nothing is
+ * AI-generated. Hidden when logging for a past day (backfill).
+ */
+export function DayFitExplainer({
+  mealTotals,
+  enabled,
+  className,
+}: {
+  mealTotals: NutritionValues;
+  /** Only fetch/render for same-day logging. */
+  enabled: boolean;
+  className?: string;
+}) {
+  const [snap, setSnap] = useState<CoachSnapshotResponse | null>(null);
+  const [failed, setFailed] = useState(false);
+  const reqId = useRef(0);
+
+  useEffect(() => {
+    if (!enabled) return;
+    const id = ++reqId.current;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/nutrition/coach/snapshot", { cache: "no-store" });
+        if (!res.ok) throw new Error(String(res.status));
+        const body = (await res.json()) as CoachSnapshotResponse;
+        if (!cancelled && reqId.current === id) setSnap(body);
+      } catch {
+        if (!cancelled && reqId.current === id) setFailed(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled]);
+
+  if (!enabled || failed) return null;
+
+  const mealKcal = mealTotals.calories ?? 0;
+  const mealProtein = mealTotals.protein ?? 0;
+
+  return (
+    <div className={cn("rounded-lg border border-primary/15 bg-primary/[0.03] p-2.5", className)}>
+      <p className="flex items-center gap-1.5 text-xs font-semibold">
+        <Target aria-hidden className="h-3.5 w-3.5 text-primary/70" />
+        Where this fits in your day
+      </p>
+      {!snap ? (
+        <div className="mt-2 space-y-1.5" aria-busy="true" aria-label="Loading today's progress">
+          <div className="h-2 w-full animate-pulse rounded-full bg-muted" />
+          <div className="h-2 w-2/3 animate-pulse rounded-full bg-muted" />
+        </div>
+      ) : (
+        <div className="mt-2 space-y-2">
+          <DayFitRow
+            label="Calories"
+            consumed={snap.calories.consumed}
+            target={snap.calories.target}
+            mealAdd={mealKcal}
+            fmt={formatKcal}
+            warnOver
+          />
+          <DayFitRow
+            label="Protein"
+            consumed={snap.protein.consumed}
+            target={snap.protein.target}
+            mealAdd={mealProtein}
+            fmt={formatGrams}
+          />
+          <p className="border-t border-primary/10 pt-1.5 text-[10.5px] leading-relaxed text-muted-foreground">
+            Today's progress comes from meals you already logged; the projection adds this meal's verified numbers on
+            top. Targets follow your profile formula — no AI involved.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** One deterministic "consumed + meal vs target" progress row. */
+function DayFitRow({
+  label,
+  consumed,
+  target,
+  mealAdd,
+  fmt,
+  warnOver = false,
+}: {
+  label: string;
+  consumed: number;
+  target: number;
+  mealAdd: number;
+  fmt: (n: number) => string;
+  warnOver?: boolean;
+}) {
+  const after = consumed + mealAdd;
+  const pct = target > 0 ? Math.min(100, Math.round((after / target) * 100)) : 0;
+  const over = target > 0 && after > target;
+  const remaining = Math.max(0, target - after);
+
+  return (
+    <div>
+      <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5 text-[11px]">
+        <span className="font-medium">
+          {label}: {fmt(consumed)} + {fmt(mealAdd)} = <span className="font-semibold">{fmt(after)}</span> of {fmt(target)}
+        </span>
+        <span className={cn("tabular-nums", over && warnOver ? "font-medium text-amber-600 dark:text-amber-400" : "text-muted-foreground")}>
+          {pct}%{over && warnOver ? ` · ${fmt(after - target)} over target` : ` · ${fmt(remaining)} left`}
+        </span>
+      </div>
+      <span
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={pct}
+        aria-label={`${label} progress after this meal`}
+        className="mt-1 block h-1.5 w-full overflow-hidden rounded-full bg-muted"
+      >
+        <span
+          className={cn(
+            "block h-full rounded-full transition-all duration-500",
+            over && warnOver ? "bg-amber-500/80" : "bg-primary/70",
+          )}
+          style={{ width: `${Math.max(2, pct)}%` }}
+        />
+      </span>
+    </div>
   );
 }
